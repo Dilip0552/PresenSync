@@ -101,21 +101,29 @@ function ManageClassesTab({classes,setClasses}){
             </div>
             {showClassList && !showAllStudents &&
                 <div>
-                    <div className="flex flex-col items-left justify-top h-[460px] overflow-y-auto">
+                    <div className="flex flex-col items-left justify-top h-[510px] overflow-y-auto">
                         {classes.map((myclass,index)=>{
                             return (
-                                <div key={index} className="w-lg my-1 flex flex-row items-center justify-between rounded-lg px-5 py-2 border-2 border-blue-200 cursor-pointer hover:bg-blue-100 active:bg-blue-200 transition-color duration-200" onClick={()=>{
+                                <div key={index} className="w-lg my-1 flex flex-row items-center justify-between rounded-lg px-5 py-2 border-2 border-blue-200 cursor-pointer hover:bg-blue-100 active:bg-blue-200 transition-color duration-200" onClick={(e)=>{
+                                    if (e.target.id!=="delete"){
                                     setShowClassList(false);
                                     setCurrClass(myclass);
-                                    setShowAllStudents(true);
+                                    setShowAllStudents(true);}
                                 }}>
-                                    <span >{myclass}</span>
-                                    <img className="w-4 h-4 opacity-60" src="src/assets/next.png" alt="" />
+                                    <span className="w-1/6 text-lg">{myclass}</span>
+                                    <div className="w-full flex flex-row items-center justify-between">
+                                        <img className="w-4 h-4 opacity-60" id="next" src="src/assets/next.png" alt="" />
+                                        <img src="src/assets/delete.png" alt="delete" id="delete" className="w-9 h-9 px-2 py-2 bg-gray-100 hover:bg-gray-300 active:bg-gray-400 rounded-full" onClick={(e)=>{
+                                            if (e.target.id=="delete"){
+                                                console.log("img clicked")
+                                            }
+                                        }}/>
+                                    </div>
                                 </div>
                             )
                         })}
                     </div>
-                    <button className="w-lg border-2 border-blue-200 text-blue-500 px-3 py-2 mt-10 rounded-lg cursor-pointer hover:bg-blue-200 hover:border-blue-300 active:bg-blue-300 transition-color duration-200 text-lg font-medium translate-x-[50%]"  onClick={()=>{
+                    <button className="w-1/2 border-2 border-blue-200 text-blue-500 px-3 py-2 mt-2 rounded-lg cursor-pointer hover:bg-blue-200 hover:border-blue-300 active:bg-blue-300 transition-color duration-200 text-lg font-medium translate-x-[50%] "  onClick={()=>{
                         setShowAllStudents(false)
                         setShowClassList(false)
                         setShowAddNewClass(true)

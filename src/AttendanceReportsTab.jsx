@@ -61,7 +61,7 @@ function AttendanceReportsTab({totalSessions,classes}){
                         setSelectedClass(session.className)
                         setShowClassReport(true)
                     }}>
-                        <span >{session.className}</span>
+                        <span className="text-lg">{session.className}</span>
                         <img className="w-4 h-4 opacity-60" src="src/assets/next.png" alt="" />
                     </div>
                     )
@@ -114,7 +114,7 @@ function AttendanceReportsTab({totalSessions,classes}){
                 }
                 {
                     !showClassesList && selectedClass!=="" && showAllStudentAttendance && (
-                        <div className="w-full h-full flex flex-col items-left justify-center transition-all duration-200">
+                        <div className="w-full h-full flex flex-col items-left justify-top transition-all duration-200">
                         <div className="flex flex-row item-center justify-left text-2xl font-medium my-2">
                             <img src="src/assets/back.png" alt="back" className="w-5 h-5 mr-3 translate-y-2 cursor-pointer" onClick={()=>{
                                 setShowAllStudentAttendance(false);
