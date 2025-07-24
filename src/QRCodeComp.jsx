@@ -16,9 +16,13 @@ function QRCodeComp({setShowCreateSession,setShowQR}){
                         <span className="font-medium">Duration: {qrDisplayDetails.duration}</span>
                         <span className="font-medium">Starts At: {qrDisplayDetails.startsAt}</span>
                     </div>
-                    <div><button className="px-6 py-1 text-red-600 rounded-lg text-lg border-2 border-red-400 cursor-pointer my-7 hover:bg-red-500 hover:text-black active:bg-red-600 transition-colors duration-300" onClick={()=>{
-                        setShowCreateSession(true);
-                        setShowQR(false);
+                    <div><button className="px-6 py-1 text-red-600 rounded-lg text-lg border-2 border-red-400 cursor-pointer my-7 hover:bg-red-50  active:bg-red-100 transition-colors duration-300" onClick={(e)=>{
+                        e.target.innerText="Ending..."
+                        setTimeout(()=>{
+                            setShowCreateSession(true);
+                            setShowQR(false);
+                        },2000)
+                        
                     }}>End Session</button></div>
                 </div>
                 <div className="w-full my-4 flex flex-col items-center pr-4 ">
