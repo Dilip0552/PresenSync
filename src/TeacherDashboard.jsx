@@ -7,7 +7,7 @@ import {useNavigate, useLocation} from "react-router-dom"
 function TeacherDashboard(){
     const [activeTab,setActiveTab]=useState("createSession")
     const [classes,setClasses]=useState(
-        ["CS1-A","CS1-B","CS1-C","CS2-A","CS3-A"]
+        ["CS1-A","CS1-B","CS1-C","CS2-A","CS3-A","CS1-A","CS1-B","CS1-C","CS2-A","CS3-A","CS1-A","CS1-B","CS1-C","CS2-A","CS3-A","CS1-A","CS1-B","CS1-C","CS2-A","CS3-A","CS1-A","CS1-B","CS1-C","CS2-A","CS3-A"]
     )
     const navigate=useNavigate()
 
@@ -34,7 +34,7 @@ function TeacherDashboard(){
             
         },
             {
-            className:"CS1-b",
+            className:"CS1-B",
             dateAndTime:"Apr 21, 10:00 AM",
             totalPresent:18,
             totalAbsent:2,
@@ -106,14 +106,14 @@ function TeacherDashboard(){
     }
     
     return (
-        <div className="w-screen h-screen p-8 " style={{backgroundColor:"#EAEEF7"}}>
+        <div className="w-screen h-screen p-8 overflow-y-auto" style={{backgroundColor:"#EAEEF7"}}>
             <div className="w-full h-full rounded-3xl border-2 border-white  grid grid-cols-5 " style={{backgroundColor:"#F6F9FE"}}>
                 {/* Sidebar */}
                 <div className="col-span-1 p-4 border-2 border-white rounded-tl-3xl rounded-bl-3xl relative" style={{backgroundColor:"#F3F8FF"}}>
                     <div className="flex flex-col items-left justify-center my-2">
                         <p className="text-2xl font-medium">PresenSync</p>
                     </div>
-                    <div className="w-full flex flex-col items-center justify-center my-4">
+                    <div className="w-full flex flex-col items-center justify-center my-4 gap-2">
                         <button onClick={()=>{setActiveTab("createSession")}} className={`w-full px-4 py-3 flex flex-row items-center justify-left rounded-2xl  cursor-pointer transition-colors duration-200 ${activeTab === "createSession" ? "bg-blue-200" : "hover:bg-blue-100"}`}>
                             <img src="src/assets/plus.png" alt="" className="w-4 h-4" />
                             <span className="mx-3 font-mono">Create Session</span>

@@ -68,6 +68,32 @@ function ManageClassesTab({classes,setClasses}){
             },
         ]
     )
+    const [name,setName]=useState("")
+    const handleName=(e)=>{
+        setName(e.target.value)
+    }
+    const [rollNo,setRollNo]=useState("")
+    const handleRollNo=(e)=>{
+        setRollNo(e.target.value)
+    }
+    const [year,setYear]=useState()
+    const handleYear=(e)=>{
+        setYear(e.target.value)
+    }
+    const [batch,setBatch]=useState("")
+    const handleBatch = (e) => {
+    const re = /^[0-9\b]+$/; 
+    if (e.target.value === "" || re.test(e.target.value) && e.target.value.length<=4) {
+      setBatch(e.target.value);
+    }
+  };
+    const [section,setSection]=useState("")
+    const handleSection=(e)=>{
+        const re = /^[a-z\b]+$/; 
+        if (e.target.value === "" || re.test(e.target.value) && e.target.value.length<=1) {
+            setSection(e.target.value);
+    }
+    }
     return (
         <div className="w-full h-full flex flex-col items-left justify-start px-6 ">
             <div className="w-full text-2xl font-medium my-2">
@@ -75,10 +101,10 @@ function ManageClassesTab({classes,setClasses}){
             </div>
             {showClassList && !showAllStudents &&
                 <div>
-                    <div className="flex flex-col items-left justify-center">
+                    <div className="flex flex-col items-left justify-top h-[460px] overflow-y-auto">
                         {classes.map((myclass,index)=>{
                             return (
-                                <div key={index} className="w-75 my-1 flex flex-row items-center justify-between rounded-lg px-5 py-2 border-2 border-blue-200 cursor-pointer hover:bg-blue-100 active:bg-blue-200 transition-color duration-200" onClick={()=>{
+                                <div key={index} className="w-lg my-1 flex flex-row items-center justify-between rounded-lg px-5 py-2 border-2 border-blue-200 cursor-pointer hover:bg-blue-100 active:bg-blue-200 transition-color duration-200" onClick={()=>{
                                     setShowClassList(false);
                                     setCurrClass(myclass);
                                     setShowAllStudents(true);
@@ -89,7 +115,7 @@ function ManageClassesTab({classes,setClasses}){
                             )
                         })}
                     </div>
-                    <button className="w-lg border-2 border-blue-200 text-blue-500 px-3 py-2 my-5 rounded-lg cursor-pointer hover:bg-blue-200 hover:border-blue-300 active:bg-blue-300 transition-color duration-200 text-lg font-medium" onClick={()=>{
+                    <button className="w-lg border-2 border-blue-200 text-blue-500 px-3 py-2 mt-10 rounded-lg cursor-pointer hover:bg-blue-200 hover:border-blue-300 active:bg-blue-300 transition-color duration-200 text-lg font-medium translate-x-[50%]"  onClick={()=>{
                         setShowAllStudents(false)
                         setShowClassList(false)
                         setShowAddNewClass(true)
@@ -135,10 +161,10 @@ function ManageClassesTab({classes,setClasses}){
             {
                 !showAllStudents && !showClassList && showAddNewClass && (
                     <div className="w-full h-full flex flex-col items-left justify-top py-4">
-                        <div className="w-full grid grid-cols-2 gap-4">
-                            <div className="flex flex-col items-left justify-top">
+                        <div className="w-full grid grid-cols-3 gap-4">
+                            <div className="flex flex-col items-left justify-top col-span-1">
                                 <span className="font-medium">Year</span>
-                                <select name="year" id="year" className="w-fit cursor-pointer px-2 py-2 rounded-lg border-2 border-blue-50 outline-blue-50 active:outline-blue-100">
+                                <select name="year" id="year" className="w-fit cursor-pointer px-2 py-2 rounded-lg border-2 border-blue-50 outline-blue-50 active:outline-blue-100" value={year} onChange={handleYear}>
                                     <option value="">-- Select a Year --</option>
                                     <option value="1">1st Year</option>
                                     <option value="2">2nd Year</option>
@@ -146,13 +172,17 @@ function ManageClassesTab({classes,setClasses}){
                                     <option value="4">4th Year</option>
                                 </select>
                             </div>
-                            <div className="flex flex-col items-left justify-top">
+                            <div className="flex flex-col items-left justify-top col-span-1">
                                 <span className="font-medium">Batch</span>
-                                <input type="text" placeholder="Ex: 2028" className="w-fit  px-2 py-2 rounded-lg border-2 border-blue-50 outline-blue-50 active:outline-blue-100"/>
+                                <input type="text" onChange={handleBatch} value={batch} placeholder="Ex: 2028" className="w-fit  px-2 py-2 rounded-lg border-2 border-blue-50 outline-blue-50 focus:outline-blue-200"/>
                             </div>
-                            <div className="w-full  px-3 py-1.5 my-3 rounded-2xl border-2 border-blue-200">
-                                <span className="text-lg font-medium">Students</span>
-                                <ul className="my-3 h-[370px] overflow-y-auto">
+                            <div className="flex flex-col items-left justify-top col-span-1">
+                                <span className="font-medium">Section</span>
+                                <input type="text" onChange={handleSection} value={section} placeholder="Ex: B" className="w-fit  uppercase px-2 py-2 rounded-lg border-2 border-blue-50 outline-blue-50 focus:outline-blue-200"/>
+                            </div>
+                            <div className="w-full  h-fit px-4 py-3 my-3 rounded-2xl border-2 border-blue-200 col-span-1">
+                                <span className="text-lg font-medium">Students Added</span>
+                                <ul className="my-3 h-[280px] overflow-y-auto">
 
                                 {studentsToAdd.length===0? <div className="text-gray-500">No Students Added</div>:
                                     studentsToAdd.map((student,index)=>{
@@ -174,9 +204,55 @@ function ManageClassesTab({classes,setClasses}){
                                 }
                                 </ul>
                             </div>
-                            <div className="w-full h-[430px] px-3 py-1.5 my-3 rounded-2xl border-2 border-blue-200">
+                            <div className="w-full h-[355px] px-4 py-3 my-3 rounded-2xl border-2 border-blue-200 col-span-2 relative">
                                 <span className="text-lg font-medium">Add Students</span>
+
+                                <div className="w-full grid grid-cols-2 my-4">
+
+                                    <div className="ml-4 mr-4 col-span-1 flex flex-col items-left justify-top">
+                                        <span className="font-medium">Name</span>
+                                        <input type="text" placeholder="Enter Student name" className="w-full  px-2 py-2 rounded-lg border-2 border-blue-50 outline-blue-50 focus:outline-blue-200" value={name} onChange={handleName}/>
+                                    </div>
+                                    <div className="ml-4 col-span-1 flex flex-col items-left justify-top">
+                                        <span className="font-medium">Roll No.</span>
+                                        <input type="text" placeholder="Enter Roll No." className=" w-full  px-2 py-2 rounded-lg border-2 border-blue-50 outline-blue-50 focus:outline-blue-200" value={rollNo} onChange={handleRollNo}/>
+                                    </div>
+                                    
+                                </div>
+                                <div className="w-full px-10 flex flex-row align-center justify-between absolute bottom-4 left-2">
+                                    <button className="bg-white w-1/3 rounded-lg py-2  text-gray-800  font-normal text-lg hover:bg-blue-100 active:bg-blue-200 cursor-pointer " onClick={()=>{
+                                        setName("");
+                                        setRollNo("");  
+                                    }}>Cancel</button>
+                                    <button className="bg-blue-500 w-1/3 rounded-lg py-2  text-white font-medium text-lg cursor-pointer hover:bg-blue-600 active:bg-blue-700" onClick={()=>{
+                                        const updated=[...studentsToAdd]
+                                        if (name!=="" || rollNo!==""){
+
+                                            updated.push({name:name,rollNo:rollNo})
+                                            setStudentsToAdd(updated)
+                                        }
+                                    }}>Add Student</button>
+                                </div>
+
+
                             </div>
+                        </div>
+                        <div className=" px-10 w-full flex flex-row items-center justify-between my-3">
+                            <button className="w-1/3 bg-white  rounded-lg py-2  text-gray-800  font-normal text-lg hover:bg-blue-100 active:bg-blue-200 cursor-pointer " onClick={()=>{
+                                setShowClassList(true);
+                                setShowAddNewClass(false);
+                            }}>Cancel</button>
+                            <button className="w-1/3 bg-blue-500 rounded-lg py-2  text-white font-medium text-lg hover:bg-blue-600 active:bg-blue-700 cursor-pointer" onClick={(e)=>{
+                                if (section!=="" && year!=="" && batch!==""){
+                                    e.target.innerText="Saving..."
+                                    const temp=`CS${year}-${section.toUpperCase()}`
+                                    const updatedSection=[...classes]
+                                    updatedSection.push(temp);
+                                    setClasses(updatedSection);
+                                    setShowClassList(true);
+                                    setShowAddNewClass(false);
+                                }
+                            }}>Add Class</button>
                         </div>
                     </div>
                 )

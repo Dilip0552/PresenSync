@@ -53,22 +53,22 @@ function AttendanceReportsTab({totalSessions,classes}){
             <div className="w-full flex flex-row item-center justify-left text-2xl font-medium my-2">
                 <span>Attendance Reports</span>
             </div>
-            <div className="flex flex-col items-left justify-center">
-                {showClassesList && classes.map((myclass,index)=>{
+            <div className="flex flex-col items-left justify-top h-[560px] overflow-y-auto">
+                {showClassesList && totalSessions.map((session,index)=>{
                     return (
-                    <div key={index} className="w-75 my-1 flex flex-row items-center justify-between rounded-lg px-5 py-2 border-2 border-blue-200 cursor-pointer hover:bg-blue-100 active:bg-blue-200 transition-all duration-200 " onClick={()=>{
+                    <div key={index} className="w-lg my-1 flex flex-row items-center justify-between rounded-lg px-5 py-2 border-2 border-blue-200 cursor-pointer hover:bg-blue-100 active:bg-blue-200 transition-all duration-200 " onClick={()=>{
                         setShowClassesList(false)
-                        setSelectedClass(myclass)
+                        setSelectedClass(session.className)
                         setShowClassReport(true)
                     }}>
-                        <span >{myclass}</span>
+                        <span >{session.className}</span>
                         <img className="w-4 h-4 opacity-60" src="src/assets/next.png" alt="" />
                     </div>
                     )
                 })}
                 {
                     !showClassesList && showClassReport && selectedClass!=="" && 
-                    <div className="w-full h-full flex flex-col items-left justify-center transition-all duration-200">
+                    <div className="w-full h-full flex flex-col items-left justify-top transition-all duration-200">
                         <div className="flex flex-row item-center justify-left text-2xl font-medium my-2">
                             <img src="src/assets/back.png" alt="back" className="w-5 h-5 mr-3 translate-y-2 cursor-pointer" onClick={()=>{
                                 setShowClassesList(true);

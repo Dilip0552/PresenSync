@@ -32,7 +32,7 @@ function CreateSessionTab({classes}){
                 <span className="text-lg font-medium">Start Date & Time</span>
                 <input type="date" className="w-fit px-2 py-2 rounded-lg border-2 border-blue-50 outline-blue-50 active:outline-blue-50 cursor-pointer"/>
             </div>
-            <button className="w-2xs py-2 my-3 bg-blue-500 text-white rounded-lg cursor-pointer hover:bg-blue-600 active:bg-blue-700">Create Session</button>
+            <button className="w-2xs py-2 my-3 bg-blue-500 text-white rounded-lg cursor-pointer hover:bg-blue-600 active:bg-blue-700 font-medium">Create Session</button>
             
         </div>
     )
