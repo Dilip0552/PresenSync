@@ -3,7 +3,7 @@ import CreateSessionTab from "./CreateSessionTab"
 import ManageClassesTab from "./ManageClassesTab"
 import AttendanceReportsTab from "./AttendanceReportsTab"
 import {useNavigate, useLocation} from "react-router-dom"
-
+import ProfileSettingsModal from "./ProfileSettingsModal"
 function TeacherDashboard(){
     const [activeTab,setActiveTab]=useState("createSession")
     const [classes,setClasses]=useState(
@@ -104,7 +104,7 @@ function TeacherDashboard(){
             return (<CreateSessionTab classes={classes} totalSessions={totalSessions} setTotalSessions={setTotalSessions}/>)
         }
     }
-    
+    const [showSettings,setShowSettings]=useState(false)
     return (
         <div className="w-screen h-screen p-8 overflow-y-auto" style={{backgroundColor:"#EAEEF7"}}>
             <div className="w-full h-full rounded-3xl border-2 border-white  grid grid-cols-5 " style={{backgroundColor:"#F6F9FE"}}>
@@ -127,7 +127,7 @@ function TeacherDashboard(){
                             <span className="mx-3 font-mono">Attendance Reports</span>
                         </button>
                     </div>
-                    <div className="w-fit absolute bottom-1 left-0 flex flex-row items-center justify-left px-5 py-3 mx-2 my-2 gap-2 cursor-pointer hover:bg-blue-100 active:bg-blue-200 rounded-2xl">
+                    <div className="w-fit absolute bottom-1 left-0 flex flex-row items-center justify-left px-5 py-3 mx-2 my-2 gap-2 cursor-pointer hover:bg-blue-100 active:bg-blue-200 rounded-2xl" onClick={()=>setShowSettings(true)}>
                         <img src="src/assets/user.png" alt="my-account" className="w-6 h-6"/>
                         <span className="text-lg">Profile & Settings</span>
                     </div>
@@ -137,7 +137,16 @@ function TeacherDashboard(){
                 {/* Main Content */}
                 <div className=" w-full h-full col-span-4 p-4 border-2 border-white rounded-tr-3xl rounded-br-3xl" style={{backgroundColor:"#FFFFFF"}}>
                     {getPage()}
-                </div>                    
+                </div>  
+
+                { showSettings &&
+                <div className="p-8">
+
+                    <div className=" absolute top-0 left-0">
+                        <ProfileSettingsModal setShowSettings={setShowSettings}/>    
+                    </div>                 
+                </div>
+                } 
             </div>
         </div>
     )

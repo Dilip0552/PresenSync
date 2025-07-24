@@ -53,7 +53,7 @@ function AttendanceReportsTab({totalSessions,classes}){
             <div className="w-full flex flex-row item-center justify-left text-2xl font-medium my-2">
                 <span>Attendance Reports</span>
             </div>
-            <div className="flex flex-col items-center justify-top h-[calc(100vh-220px) overflow-y-auto">
+            <div className="flex flex-col items-center justify-top h-[calc(100vh-220px)] overflow-y-auto">
                 {showClassesList && totalSessions.map((session,index)=>{
                     return (
                     <div key={index} className="w-lg my-1 flex flex-row items-center justify-between rounded-lg px-5 py-2 border-2 border-blue-200 cursor-pointer hover:bg-blue-100 active:bg-blue-200 transition-all duration-200 " onClick={()=>{
