@@ -95,13 +95,13 @@ function ManageClassesTab({classes,setClasses}){
     }
     }
     return (
-        <div className="w-full h-full flex flex-col items-left justify-start px-6 ">
+        <div className="w-full flex flex-col items-left justify-start px-6 ">
             <div className="w-full text-2xl font-medium my-2">
                 Active Classes
             </div>
             {showClassList && !showAllStudents &&
-                <div>
-                    <div className="flex flex-col items-left justify-top h-[510px] overflow-y-auto">
+                <div className="h-full">
+                    <div className="flex flex-col items-center justify-top h-[calc(100vh-220px)] overflow-y-auto">
                         {classes.map((myclass,index)=>{
                             return (
                                 <div key={index} className="w-lg my-1 flex flex-row items-center justify-between rounded-lg px-5 py-2 border-2 border-blue-200 cursor-pointer hover:bg-blue-100 active:bg-blue-200 transition-color duration-200" onClick={(e)=>{
@@ -123,7 +123,7 @@ function ManageClassesTab({classes,setClasses}){
                             )
                         })}
                     </div>
-                    <button className="w-1/2 border-2 border-blue-200 text-blue-500 px-3 py-2 mt-2 rounded-lg cursor-pointer hover:bg-blue-200 hover:border-blue-300 active:bg-blue-300 transition-color duration-200 text-lg font-medium translate-x-[50%] "  onClick={()=>{
+                    <button className="w-1/2 border-2 border-blue-200 text-blue-500 px-3 py-2 rounded-lg cursor-pointer hover:bg-blue-200 hover:border-blue-300 active:bg-blue-300 transition-color duration-200 text-lg font-medium translate-x-[50%] shadow-[0px_1px_40px_rgba(0,0,0,0.1)] mt-4"  onClick={()=>{
                         setShowAllStudents(false)
                         setShowClassList(false)
                         setShowAddNewClass(true)
@@ -168,7 +168,7 @@ function ManageClassesTab({classes,setClasses}){
             )}
             {
                 !showAllStudents && !showClassList && showAddNewClass && (
-                    <div className="w-full h-full flex flex-col items-left justify-top py-4">
+                    <div className="w-full h-full flex flex-col items-left justify-top pt-4">
                         <div className="w-full grid grid-cols-3 gap-4">
                             <div className="flex flex-col items-left justify-top col-span-1">
                                 <span className="font-medium">Year</span>
@@ -190,7 +190,7 @@ function ManageClassesTab({classes,setClasses}){
                             </div>
                             <div className="w-full  h-fit px-4 py-3 my-3 rounded-2xl border-2 border-blue-200 col-span-1">
                                 <span className="text-lg font-medium">Students Added</span>
-                                <ul className="my-3 h-[280px] overflow-y-auto">
+                                <ul className="my-3 h-[calc(100vh-410px)] overflow-y-auto">
 
                                 {studentsToAdd.length===0? <div className="text-gray-500">No Students Added</div>:
                                     studentsToAdd.map((student,index)=>{
@@ -212,7 +212,7 @@ function ManageClassesTab({classes,setClasses}){
                                 }
                                 </ul>
                             </div>
-                            <div className="w-full h-[355px] px-4 py-3 my-3 rounded-2xl border-2 border-blue-200 col-span-2 relative">
+                            <div className="w-full h-[calc(100vh-330px)] px-4 py-3 my-3 rounded-2xl border-2 border-blue-200 col-span-2 relative">
                                 <span className="text-lg font-medium">Add Students</span>
 
                                 <div className="w-full grid grid-cols-2 my-4">
@@ -245,7 +245,7 @@ function ManageClassesTab({classes,setClasses}){
 
                             </div>
                         </div>
-                        <div className=" px-10 w-full flex flex-row items-center justify-between my-3">
+                        <div className=" px-10 w-full flex flex-row items-center justify-between mt-3">
                             <button className="w-1/3 bg-white  rounded-lg py-2  text-gray-800  font-normal text-lg hover:bg-blue-100 active:bg-blue-200 cursor-pointer " onClick={()=>{
                                 setShowClassList(true);
                                 setShowAddNewClass(false);
