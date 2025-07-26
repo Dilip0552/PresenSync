@@ -95,8 +95,8 @@ function ManageClassesTab({classes,setClasses}){
     }
     }
     return (
-        <div className="w-full flex flex-col items-left justify-start px-6 ">
-            <div className="w-full text-2xl font-medium my-2">
+        <div className="w-full flex  flex-col items-left justify-start px-6 ">
+            <div className="w-full  text-2xl font-medium my-2">
                 Active Classes
             </div>
             {showClassList && !showAllStudents &&
@@ -104,15 +104,15 @@ function ManageClassesTab({classes,setClasses}){
                     <div className="flex flex-col items-center justify-top h-[calc(100vh-220px)] overflow-y-auto">
                         {classes.map((myclass,index)=>{
                             return (
-                                <div key={index} className="w-lg my-1 flex flex-row items-center justify-between rounded-lg px-5 py-2 border-2 border-blue-200 cursor-pointer hover:bg-blue-100 active:bg-blue-200 transition-color duration-200" onClick={(e)=>{
+                                <div key={index} className="w-2/3 my-1 flex flex-row items-center justify-between rounded-lg px-5 py-2 border-2 border-blue-200 cursor-pointer hover:bg-blue-100 active:bg-blue-200 transition-color duration-200" onClick={(e)=>{
                                     if (e.target.id!=="delete"){
                                     setShowClassList(false);
                                     setCurrClass(myclass);
                                     setShowAllStudents(true);}
                                 }}>
                                     <span className="w-1/6 text-lg">{myclass}</span>
-                                    <div className="w-full flex flex-row items-center justify-between">
                                         <img className="w-4 h-4 opacity-60" id="next" src="src/assets/next.png" alt="" />
+                                    <div className="w-full flex flex-row items-center justify-end">
                                         <img src="src/assets/delete.png" alt="delete" id="delete" className="w-9 h-9 px-2 py-2 bg-gray-100 hover:bg-gray-300 active:bg-gray-400 rounded-full" onClick={(e)=>{
                                             if (e.target.id=="delete"){
                                                 console.log("img clicked")
