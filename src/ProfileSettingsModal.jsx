@@ -25,9 +25,9 @@ function ProfileSettingsModal({ setShowSettings }) {
   };
 
   return (
-    <div className="fixed top-0 px-8 py-8 left-0 w-full h-full bg-transparent bg-opacity-50 flex items-center justify-center z-50">
+    <div className="fixed top-0 px-12 py-12 left-0 w-full h-full bg-transparent bg-opacity-50 flex items-center justify-center z-50">
       <div
-        className="bg-white w-full p-6 rounded-2xl shadow-2xl overflow-y-auto scrollbar-none h-full relative outline-2 outline-blue-200"
+        className="bg-white w-full px-16 py-10 rounded-2xl shadow-2xl overflow-y-auto scrollbar-none h-full relative outline-2 outline-blue-200"
         style={{ scrollbarWidth: 'none' }}
       >
         <button

@@ -56,7 +56,7 @@ function AttendanceReportsTab({totalSessions,classes}){
             <div className="flex flex-col items-center justify-top h-[calc(100vh-220px)] overflow-y-auto">
                 {showClassesList && totalSessions.map((session,index)=>{
                     return (
-                    <div key={index} className="w-lg my-1 flex flex-row items-center justify-between rounded-lg px-5 py-2 border-2 border-blue-200 cursor-pointer hover:bg-blue-100 active:bg-blue-200 transition-all duration-200 " onClick={()=>{
+                    <div key={index} className="w-2/3  my-1 flex flex-row items-center justify-between rounded-lg px-5 py-2 border-2 border-blue-200 cursor-pointer hover:bg-blue-100 active:bg-blue-200 transition-all duration-200 " onClick={()=>{
                         setShowClassesList(false)
                         setSelectedClass(session.className)
                         setShowClassReport(true)

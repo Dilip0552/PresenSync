@@ -106,12 +106,12 @@ function TeacherDashboard(){
     }
     const [showSettings,setShowSettings]=useState(false)
     return (
-        <div className="w-screen h-screen p-8 overflow-y-auto" style={{backgroundColor:"#EAEEF7"}}>
-            <div className="w-full h-full rounded-3xl border-2 border-white  grid grid-cols-5 " style={{backgroundColor:"#F6F9FE"}}>
+        <div className="w-screen h-screen p-8  overflow-y-auto" style={{backgroundColor:"#EAEEF7", minWidth:"1020px"}}>
+            <div className="w-full h-full  rounded-3xl border-2 border-white  grid grid-cols-5 " style={{backgroundColor:"#F6F9FE"}}>
                 {/* Sidebar */}
                 <div className="col-span-1 p-4 border-2 border-white rounded-tl-3xl rounded-bl-3xl relative" style={{backgroundColor:"#F3F8FF"}}>
                     <div className="flex flex-col items-left justify-center my-2">
-                        <p className="text-2xl font-medium">PresenSync</p>
+                        <p className="text-3xl font-bold text-blue-800 mb-6">PresenSync</p>
                     </div>
                     <div className="w-full flex flex-col items-center justify-center my-4 gap-2">
                         <button onClick={()=>{setActiveTab("createSession")}} className={`w-full px-4 py-3 flex flex-row items-center justify-left rounded-2xl  cursor-pointer transition-colors duration-200 ${activeTab === "createSession" ? "bg-blue-200" : "hover:bg-blue-100"}`}>

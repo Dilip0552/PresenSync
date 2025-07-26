@@ -1,10 +1,12 @@
 import { useState } from "react"
+import Spinner from "./Spinner"
 function QRCodeComp({setShowCreateSession,setShowQR}){
     const [qrDisplayDetails,setQRDisplayDetails]=useState({
         class:"CS1-A",
         duration:"60 min",
         startsAt:"10:30 AM"
     })
+    const [showSpinner,setShowSpinner]=useState(false)
     return (
         <div className="w-fit h-fit rounded-2xl flex flex-col items-center justify-top outline-2 outline-blue-200 px-5 py-2 gap-3 transition-all duration-300" style={{backgroundColor:"#F3F8FF"}}>
             <div className="py-2"><span className="text-2xl font-medium">Rotating QR Code</span></div>
@@ -16,14 +18,15 @@ function QRCodeComp({setShowCreateSession,setShowQR}){
                         <span className="font-medium">Duration: {qrDisplayDetails.duration}</span>
                         <span className="font-medium">Starts At: {qrDisplayDetails.startsAt}</span>
                     </div>
-                    <div><button className="px-6 py-1 text-red-600 rounded-lg text-lg border-2 border-red-400 cursor-pointer my-7 hover:bg-red-50  active:bg-red-100 transition-colors duration-300" onClick={(e)=>{
+                    <div><button className="flex flex-row items-center justify-center px-6 py-1 text-red-600 rounded-lg text-lg border-2 border-red-400 cursor-pointer my-7 hover:bg-red-50  active:bg-red-100 transition-colors duration-300" onClick={(e)=>{
                         e.target.innerText="Ending..."
+                        setShowSpinner(true)
                         setTimeout(()=>{
                             setShowCreateSession(true);
                             setShowQR(false);
                         },2000)
                         
-                    }}>End Session</button></div>
+                    }}>End Session  {showSpinner && <div className="w-7 h-7"><Spinner/></div>}</button></div>
                 </div>
                 <div className="w-full my-4 flex flex-col items-center pr-4 ">
                     <div className="w-full rounded-lg bg-white px-4 py-4 ">
