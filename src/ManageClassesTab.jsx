@@ -136,7 +136,7 @@ function ManageClassesTab({ classes, setClasses }) {
                     <td className="px-6 py-4">{student.rollNo}</td>
                     <td className="px-6 py-4">{student.batch}</td>
                     <td className="px-6 py-4">
-                      <button className="text-blue-600 hover:underline">Edit</button>
+                      <button className="text-blue-600 hover:underline cursor-pointer">Edit</button>
                     </td>
                   </tr>
                 ))}

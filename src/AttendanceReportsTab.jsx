@@ -77,7 +77,7 @@ function AttendanceReportsTab({ totalSessions, classes }) {
                       <td className="px-6 py-4">{session.presentPercent}</td>
                       <td className="px-6 py-4">
                         <button
-                          className="text-blue-600 hover:underline"
+                          className="text-blue-600 hover:underline cursor-pointer"
                           onClick={() => {
                             setShowClassReport(false);
                             setShowAllStudentAttendance(true);
@@ -130,7 +130,7 @@ function AttendanceReportsTab({ totalSessions, classes }) {
                       <td className={`px-6 py-4 font-semibold ${student.status === "Present" ? "text-green-600" : "text-red-500"}`}>{student.status}</td>
                       <td className="px-6 py-4">{student.time}</td>
                       <td className="px-6 py-4">
-                        <button className="text-blue-600 hover:underline">View</button>
+                        <button className="text-blue-600 hover:underline cursor-pointer">View</button>
                       </td>
                     </tr>
                   ))}

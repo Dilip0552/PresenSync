@@ -55,7 +55,7 @@ function CreateSessionTab({ classes }) {
           </div>
 
           <button
-            className="px-6 py-2 mt-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 active:bg-blue-800 font-semibold shadow-md"
+            className="px-6 py-2 mt-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 active:bg-blue-800 font-semibold shadow-md cursor-pointer"
             onClick={() => {
               setShowQR(true);
               setShowCreateSession(false);
