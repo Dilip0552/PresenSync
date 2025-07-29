@@ -73,10 +73,10 @@ function ManageClassesTab({ classes, setClasses }) {
                 }}
               >
                 <span className="text-lg font-medium text-gray-700 w-1/6">{myclass}</span>
-                <img className="w-4 h-4 opacity-60" id="next" src="src/assets/next.png" alt="next" />
+                <img className="w-4 h-4 opacity-60" id="next" src="/src/assets/next.png" alt="next" />
                 <div className="flex justify-end w-full">
                   <img
-                    src="src/assets/delete.png"
+                    src="/src/assets/delete.png"
                     alt="delete"
                     id="delete"
                     className="w-9 h-9 px-2 py-2 bg-gray-100 hover:bg-gray-300 active:bg-gray-400 rounded-full"
@@ -105,7 +105,7 @@ function ManageClassesTab({ classes, setClasses }) {
         <div className="w-full flex flex-col">
           <div className="flex items-center gap-3 mb-4">
             <img
-              src="src/assets/back.png"
+              src="/src/assets/back.png"
               alt="back"
               className="w-5 h-5 cursor-pointer"
               onClick={() => {
@@ -178,7 +178,7 @@ function ManageClassesTab({ classes, setClasses }) {
                                         return (
                                             <li key={index} className="px-5 text-lg flex flex-row align-center justify-between rounded-2xl hover:bg-blue-100 py-2 cursor-pointer" >
                                                 {student.name}
-                                                <img src="src/assets/remove.png" alt="delete" className="w-5 h-5 translate-y-1" onClick={()=>{
+                                                <img src="/src/assets/remove.png" alt="delete" className="w-5 h-5 translate-y-1" onClick={()=>{
                                                     const idx=studentsToAdd.findIndex((item)=>item.name===student.name);
                                                     if (idx!==-1){
                                                         const updatedList = [...studentsToAdd];

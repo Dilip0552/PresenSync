@@ -30,7 +30,7 @@ function QRCodeComp({setShowCreateSession,setShowQR}){
                 </div>
                 <div className="w-full my-4 flex flex-col items-center pr-4 ">
                     <div className="w-full rounded-lg bg-white px-4 py-4 ">
-                        <img src="src/assets/qr.png" alt="qr code" className="w-fit"/>
+                        <img src="/src/assets/qr.png" alt="qr code" className="w-fit"/>
                     </div>
                         <span className="pt-2">Scan the QR Code to mark attendance</span>
                 </div>
