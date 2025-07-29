@@ -35,7 +35,7 @@ function AttendanceReportsTab({ totalSessions, classes }) {
           >
             <div className="flex justify-between items-center">
               <span className="text-lg font-medium text-gray-700">{session.className}</span>
-              <img className="w-4 h-4 opacity-60" src="src/assets/next.png" alt="next" />
+              <img className="w-4 h-4 opacity-60" src="/src/assets/next.png" alt="next" />
             </div>
           </div>
         ))}
@@ -44,7 +44,7 @@ function AttendanceReportsTab({ totalSessions, classes }) {
           <div className="w-full flex flex-col">
             <div className="flex items-center gap-3 mb-4">
               <img
-                src="src/assets/back.png"
+                src="/src/assets/back.png"
                 alt="back"
                 className="w-5 h-5 cursor-pointer"
                 onClick={() => {
@@ -98,7 +98,7 @@ function AttendanceReportsTab({ totalSessions, classes }) {
           <div className="w-full flex flex-col">
             <div className="flex items-center gap-3 mb-4">
               <img
-                src="src/assets/back.png"
+                src="/src/assets/back.png"
                 alt="back"
                 className="w-5 h-5 cursor-pointer"
                 onClick={() => {
