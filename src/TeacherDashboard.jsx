@@ -1,144 +1,150 @@
-import {useState, useEffect} from "react"
-import CreateSessionTab from "./CreateSessionTab"
-import ManageClassesTab from "./ManageClassesTab"
-import AttendanceReportsTab from "./AttendanceReportsTab"
-import {useNavigate, useLocation, Routes, Route} from "react-router-dom"
-import ProfileSettingsModal from "./ProfileSettingsModal"
+import { useState, useEffect } from "react";
+import { useNavigate, useLocation, Routes, Route } from "react-router-dom";
+
+import CreateSessionTab from "./CreateSessionTab";
+import ManageClassesTab from "./ManageClassesTab";
+import AttendanceReportsTab from "./AttendanceReportsTab";
+import ProfileSettingsModal from "./ProfileSettingsModal";
+
+import Sidebar from "./Sidebar";
+import Header from "./Header";
+import DashboardOverview from "./DashboardOverview"; 
+import NotificationSystem from "./NotificationSystem"; 
 
 function TeacherDashboard() {
-    const [activeTab, setActiveTab] = useState("createSession")
-    const [classes, setClasses] = useState([
-        "CS1-A", "CS1-B", "CS1-C", "CS2-A", "CS3-A",
-        "CS1-A", "CS1-B", "CS1-C", "CS2-A", "CS3-A",
-        "CS1-A", "CS1-B", "CS1-C", "CS2-A", "CS3-A",
-        "CS1-A", "CS1-B", "CS1-C", "CS2-A", "CS3-A",
-        "CS1-A", "CS1-B", "CS1-C", "CS2-A", "CS3-A"
-    ])
-    const navigate = useNavigate()
+  const [activeTab, setActiveTab] = useState("dashboard");
+  const [classes, setClasses] = useState([
+    "CS1-A", "CS1-B", "CS1-C", "CS2-A", "CS3-A",
+    "CS1-A", "CS1-B", "CS1-C", "CS2-A", "CS3-A",
+    "CS1-A", "CS1-B", "CS1-C", "CS2-A", "CS3-A",
+    "CS1-A", "CS1-B", "CS1-C", "CS2-A", "CS3-A",
+    "CS1-A", "CS1-B", "CS1-C", "CS2-A", "CS3-A"
+  ]);
+  const [totalSessions, setTotalSessions] = useState([
+    {
+      className: "CS1-A",
+      dateAndTime: "Apr 20, 10:00 AM",
+      totalPresent: 18,
+      totalAbsent: 2,
+      totalStudents: 20,
+      presentPercent: 90,
+      classID: "abc"
+    },
+    {
+      className: "CS1-A",
+      dateAndTime: "Apr 21, 11:00 AM",
+      totalPresent: 10,
+      totalAbsent: 10,
+      totalStudents: 20,
+      presentPercent: 50,
+      classID: "abc2" 
+    },
+    {
+      className: "CS1-B",
+      dateAndTime: "Apr 21, 10:00 AM",
+      totalPresent: 18,
+      totalAbsent: 2,
+      totalStudents: 20,
+      presentPercent: 90,
+      classID: "def"
+    },
+    {
+      className: "CS1-C",
+      dateAndTime: "Apr 23, 10:00 AM",
+      totalPresent: 18,
+      totalAbsent: 2,
+      totalStudents: 20,
+      presentPercent: 90,
+      classID: "ghi"
+    },
+    {
+      className: "CS2-A",
+      dateAndTime: "Apr 23, 10:00 AM",
+      totalPresent: 18,
+      totalAbsent: 2,
+      totalStudents: 20,
+      presentPercent: 90,
+      classID: "jkl"
+    },
+    {
+      className: "CS3-A",
+      dateAndTime: "Apr 24, 10:00 AM",
+      totalPresent: 18,
+      totalAbsent: 2,
+      totalStudents: 20,
+      presentPercent: 90,
+      classID: "mno"
+    }
+  ]);
 
-    const [totalSessions, setTotalSessions] = useState([
-        {
-            className: "CS1-A",
-            dateAndTime: "Apr 20, 10:00 AM",
-            totalPresent: 18,
-            totalAbsent: 2,
-            totalStudents: 20,
-            presentPercent: 90,
-            classID: "abc"
-        },
-        {
-            className: "CS1-A",
-            dateAndTime: "Apr 21, 11:00 AM",
-            totalPresent: 10,
-            totalAbsent: 10,
-            totalStudents: 20,
-            presentPercent: 50,
-            classID: "abc"
-        },
-        {
-            className: "CS1-B",
-            dateAndTime: "Apr 21, 10:00 AM",
-            totalPresent: 18,
-            totalAbsent: 2,
-            totalStudents: 20,
-            presentPercent: 90,
-            classID: "def"
-        },
-        {
-            className: "CS1-C",
-            dateAndTime: "Apr 23, 10:00 AM",
-            totalPresent: 18,
-            totalAbsent: 2,
-            totalStudents: 20,
-            presentPercent: 90,
-            classID: "ghi"
-        },
-        {
-            className: "CS2-A",
-            dateAndTime: "Apr 23, 10:00 AM",
-            totalPresent: 18,
-            totalAbsent: 2,
-            totalStudents: 20,
-            presentPercent: 90,
-            classID: "jkl"
-        },
-        {
-            className: "CS3-A",
-            dateAndTime: "Apr 24, 10:00 AM",
-            totalPresent: 18,
-            totalAbsent: 2,
-            totalStudents: 20,
-            presentPercent: 90,
-            classID: "mno"
-        }
-    ])
+  const navigate = useNavigate();
+  const location = useLocation();
 
-    const location = useLocation()
-    useEffect(() => {
-        if (location.pathname === "/teacher/create-session") setActiveTab("createSession")
-        else if (location.pathname === "/teacher/manage-classes") setActiveTab("manageClasses")
-        else if (location.pathname === "/teacher/attendance-reports") setActiveTab("attendanceReports")
-    }, [location.pathname])
+  const [showSettings, setShowSettings] = useState(false);
+  const [notifications, setNotifications] = useState([]); 
 
-    useEffect(() => {
-        if (activeTab === "createSession") {
-            navigate("/teacher/create-session", { replace: true });
-        } else if (activeTab === "manageClasses") {
-            navigate("/teacher/manage-classes", { replace: true });
-        } else if (activeTab === "attendanceReports") {
-            navigate("/teacher/attendance-reports", { replace: true });
-        }
-    }, [activeTab])
-    const [showSettings,setShowSettings]=useState(false)
+  // Function to add a new notification
+  const addNotification = (message, type = "info") => {
+    setNotifications(prev => [...prev, { id: Date.now(), message, type }]);
+  };
 
-    return (
-        <div className="w-screen h-screen p-8  overflow-y-auto" style={{ backgroundColor: "#EAEEF7", minWidth: "1020px" }}>
-            <div className="w-full h-full  rounded-3xl border-2 border-white  grid grid-cols-5 " style={{ backgroundColor: "#F6F9FE" }}>
-                {/* Sidebar */}
-                <div className="col-span-1 p-4 border-2 border-white rounded-tl-3xl rounded-bl-3xl relative" style={{ backgroundColor: "#F3F8FF" }}>
-                    <div className="flex flex-col items-left justify-center my-2">
-                        <p className="text-3xl font-bold text-blue-800 mb-6">PresenSync</p>
-                    </div>
-                    <div className="w-full flex flex-col items-center justify-center my-4 gap-2">
-                        <button onClick={() => { setActiveTab("createSession") }} className={`w-full px-4 py-3 flex flex-row items-center justify-left rounded-2xl  cursor-pointer transition-colors duration-200 ${activeTab === "createSession" ? "bg-blue-200" : "hover:bg-blue-100"}`}>
-                            <img src="/src/assets/plus.png" alt="" className="w-4 h-4" />
-                            <span className="mx-3 font-mono">Create Session</span>
-                        </button>
-                        <button onClick={() => { setActiveTab("manageClasses") }} className={`w-full px-4 py-3 flex flex-row items-center justify-left rounded-2xl  cursor-pointer transition-colors duration-200 ${activeTab === "manageClasses" ? "bg-blue-200" : "hover:bg-blue-100"}`}>
-                            <img src="/src/assets/presentation.png" alt="" className="w-4 h-4" />
-                            <span className="mx-3 font-mono">Manage Classes</span>
-                        </button>
-                        <button onClick={() => { setActiveTab("attendanceReports") }} className={`w-full px-4 py-3 flex flex-row items-center justify-left rounded-2xl  cursor-pointer transition-colors duration-200 ${activeTab === "attendanceReports" ? "bg-blue-200" : "hover:bg-blue-100"}`}>
-                            <img src="/src/assets/clock.png" alt="" className="w-4 h-4" />
-                            <span className="mx-3 font-mono">Attendance Reports</span>
-                        </button>
-                    </div>
-                    <div className="w-fit absolute bottom-1 left-0 flex flex-row items-center justify-left px-5 py-3 mx-2 my-2 gap-2 cursor-pointer hover:bg-blue-100 active:bg-blue-200 rounded-2xl" onClick={() => setShowSettings(true)}>
-                        <img src="/src/assets/user.png" alt="my-account" className="w-6 h-6" />
-                        <span className="text-lg">Profile & Settings</span>
-                    </div>
-                </div>
+  useEffect(() => {
+    const path = location.pathname;
+    if (path.includes("/teacher/dashboard")) setActiveTab("dashboard");
+    else if (path.includes("/teacher/create-session")) setActiveTab("createSession");
+    else if (path.includes("/teacher/manage-classes")) setActiveTab("manageClasses");
+    else if (path.includes("/teacher/attendance-reports")) setActiveTab("attendanceReports");
+    else setActiveTab("dashboard");
+  }, [location.pathname]);
 
-                {/* Main Content */}
-                <div className=" w-full h-full col-span-4 p-4 border-2 border-white rounded-tr-3xl rounded-br-3xl" style={{ backgroundColor: "#FFFFFF" }}>
-                    <Routes>
-                        <Route path="create-session" element={<CreateSessionTab classes={classes} totalSessions={totalSessions} setTotalSessions={setTotalSessions} />} />
-                        <Route path="manage-classes" element={<ManageClassesTab classes={classes} setClasses={setClasses} />} />
-                        <Route path="attendance-reports" element={<AttendanceReportsTab totalSessions={totalSessions} classes={classes} />} />
-                        <Route path="*" element={<CreateSessionTab classes={classes} totalSessions={totalSessions} setTotalSessions={setTotalSessions} />} />
-                    </Routes>
-                </div>
+  useEffect(() => {
+    
+    const currentPathSegment = location.pathname.split('/').pop();
+    if (activeTab === "dashboard" && currentPathSegment !== "dashboard") {
+      navigate("/teacher/dashboard", { replace: true });
+    } else if (activeTab === "createSession" && currentPathSegment !== "create-session") {
+      navigate("/teacher/create-session", { replace: true });
+    } else if (activeTab === "manageClasses" && currentPathSegment !== "manage-classes") {
+      navigate("/teacher/manage-classes", { replace: true });
+    } else if (activeTab === "attendanceReports" && currentPathSegment !== "attendance-reports") {
+      navigate("/teacher/attendance-reports", { replace: true });
+    }
+  }, [activeTab, navigate, location.pathname]);
 
-                {showSettings &&
-                    <div className="p-8">
-                        <div className=" absolute top-0 left-0">
-                            <ProfileSettingsModal setShowSettings={setShowSettings} />
-                        </div>
-                    </div>
-                }
-            </div>
+
+  return (
+    <div className="min-h-screen w-screen bg-gray-100 font-sans flex items-center justify-center p-4 md:p-8 overflow-hidden">
+      <div className="w-full max-w-8xl h-[calc(100vh-64px)] rounded-3xl shadow-2xl grid grid-cols-5 bg-white overflow-hidden">
+        <Sidebar
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          setShowSettings={setShowSettings}
+        />
+
+        <div className="col-span-4 flex flex-col h-full rounded-tr-3xl rounded-br-3xl overflow-hidden">
+          <Header notifications={notifications} />
+
+          <div className="flex-grow p-6 bg-gray-50 rounded-br-3xl overflow-y-auto">
+            <Routes>
+              <Route path="dashboard" element={<DashboardOverview classes={classes} totalSessions={totalSessions} />} />
+              <Route path="create-session" element={<CreateSessionTab classes={classes} totalSessions={totalSessions} setTotalSessions={setTotalSessions} addNotification={addNotification} />} />
+              <Route path="manage-classes" element={<ManageClassesTab classes={classes} setClasses={setClasses} addNotification={addNotification} />} />
+              <Route path="attendance-reports" element={<AttendanceReportsTab totalSessions={totalSessions} classes={classes} addNotification={addNotification} />} />
+              <Route path="*" element={<DashboardOverview classes={classes} totalSessions={totalSessions} />} />
+            </Routes>
+          </div>
         </div>
-    )
+
+        {showSettings && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <ProfileSettingsModal setShowSettings={setShowSettings} />
+          </div>
+        )}
+
+        <NotificationSystem notifications={notifications} setNotifications={setNotifications} />
+      </div>
+    </div>
+  );
 }
 
 export default TeacherDashboard;
