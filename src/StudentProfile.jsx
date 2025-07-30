@@ -35,7 +35,7 @@ function StudentProfile({ studentInfo, addNotification, setStudentInfo }) {
 
   return (
     <div className="flex flex-col h-full bg-gray-50 p-4 sm:p-6 rounded-br-3xl"> 
-      <h1 className="text-2xl sm:text-3xl font-bold text-blue-800 mb-6 sm:mb-8 flex items-center"> {/* Adjusted font size and margin */}
+      <h1 className="text-2xl sm:text-3xl font-bold text-blue-800 mb-6 sm:mb-8 flex items-center"> 
         <User size={28} className="mr-2 sm:mr-3 text-blue-600" />
         My Profile
       </h1>

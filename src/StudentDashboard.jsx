@@ -12,8 +12,8 @@ function StudentDashboard({ addNotification }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false); 
   const [studentInfo, setStudentInfo] = useState({
     id: "STD12345",
-    name: "Alice Smith",
-    email: "alice.smith@example.com",
+    name: "Dilip Suthar",
+    email: "dilip.suthar@sitare.org",
     program: "B.Tech Computer Science",
     enrollmentDate: "2023-09-01",
     profilePic: "/src/assets/user.png" 
@@ -34,7 +34,6 @@ function StudentDashboard({ addNotification }) {
             <div className="p-8 bg-white rounded-xl shadow-lg flex-grow flex flex-col items-center justify-center">
                 <h2 className="text-3xl font-bold text-gray-800 mb-4">Settings</h2>
                 <p className="text-gray-600 text-lg text-center">Settings options will be available here soon!</p>
-                {/* <Settings size={64} className="text-blue-400 mt-8" /> */}
             </div>
         );
       default:

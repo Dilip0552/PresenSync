@@ -33,7 +33,7 @@ function Header({ notifications }) {
         </button>
 
         <div className="w-10 h-10 bg-blue-200 rounded-full flex items-center justify-center text-blue-800 font-bold cursor-pointer hover:shadow-md transition-shadow">
-          JD 
+          DS 
         </div>
       </div>
     </div>

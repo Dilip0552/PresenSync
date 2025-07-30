@@ -116,7 +116,7 @@ function StudentDashboardHome({ studentInfo, addNotification }) {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {attendanceHistory.slice(0, 5).map((record) => ( // Show only 5 recent
+                {attendanceHistory.slice(0, 5).map((record) => ( 
                   <tr key={record.id} className="hover:bg-gray-50">
                     <td className="px-3 py-3 sm:px-6 sm:py-4 whitespace-nowrap text-sm font-medium text-gray-900">{record.class}</td> 
                     <td className="px-3 py-3 sm:px-6 sm:py-4 whitespace-nowrap text-sm text-gray-500">{record.date}</td> 
