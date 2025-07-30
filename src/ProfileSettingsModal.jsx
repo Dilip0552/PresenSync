@@ -59,7 +59,7 @@ function ProfileSettingsModal({ setShowSettings }) {
                   name="fullName"
                   value={formData.fullName}
                   onChange={handleChange}
-                  placeholder="John Doe"
+                  placeholder="Dilip Suthar"
                   className="w-full px-4 py-2 rounded-lg border-2 border-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-400 transition-shadow"
                 />
               </div>
@@ -71,7 +71,7 @@ function ProfileSettingsModal({ setShowSettings }) {
                   name="email"
                   value={formData.email}
                   onChange={handleChange}
-                  placeholder="john.doe@example.com"
+                  placeholder="dilip.suthar@sitare.org"
                   className="w-full px-4 py-2 rounded-lg border-2 border-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-400 transition-shadow"
                 />
               </div>
@@ -83,7 +83,7 @@ function ProfileSettingsModal({ setShowSettings }) {
                   name="phone"
                   value={formData.phone}
                   onChange={handleChange}
-                  placeholder="+1234567890"
+                  placeholder="+91 9078903432"
                   className="w-full px-4 py-2 rounded-lg border-2 border-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-400 transition-shadow"
                 />
               </div>
