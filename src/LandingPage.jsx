@@ -88,9 +88,15 @@ function LandingPage() {
             </button>
             <button
               onClick={() => navigate("/teacher/dashboard")}
-              className="bg-white/20 px-6 py-3 rounded-full hover:bg-white/30 transition-all duration-300"
+              className="bg-indigo-600 px-6 py-3 rounded-full hover:bg-indigo-700 transition-all duration-300"
             >
               I'm a Teacher
+            </button>
+            <button
+              onClick={() => navigate("/admin/")}
+              className="bg-gray-700 px-6 py-3 rounded-full hover:bg-gray-800 transition-all duration-300"
+            >
+              I'm a Admin
             </button>
           </div>
         </motion.div>
