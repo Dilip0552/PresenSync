@@ -46,7 +46,7 @@ function LandingPage() {
       {/* Header */}
       <header className="backdrop-blur-md bg-white/10 sticky top-0 z-50 shadow-md border-b border-white/10">
         <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
-          <h1 className="text-3xl font-bold tracking-wide">PresenSync</h1>
+          <h1 className="text-4xl font-bold tracking-wide ">PresenSync</h1>
           <nav className="space-x-4 hidden md:block">
             <button
               onClick={() => navigate("/login")}
