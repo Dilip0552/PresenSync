@@ -1,18 +1,24 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import QRCodeComp from "./QRCodeComp";
+import { collection, addDoc, updateDoc, doc } from "firebase/firestore";
+import { useFirebase } from './FirebaseContext';
+import Spinner from './Spinner';
 
-function CreateSessionTab({ classes, totalSessions, setTotalSessions, addNotification }) {
-  const [selectedClass, setSelectedClass] = useState('');
+function CreateSessionTab({ classes, addNotification }) {
+  const [selectedClassId, setSelectedClassId] = useState(''); // Store class ID
   const [durationValue, setDurationValue] = useState('');
-  const [durationUnit, setDurationUnit] = useState('min'); 
+  const [durationUnit, setDurationUnit] = useState('min');
   const [startTime, setStartTime] = useState('');
 
   const [currentView, setCurrentView] = useState("form");
-
   const [sessionDetailsForQR, setSessionDetailsForQR] = useState(null);
+  const [loading, setLoading] = useState(false);
 
-  const handleCreateSession = () => {
-    if (!selectedClass) {
+  const { db, userId } = useFirebase();
+  const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+  const handleCreateSession = async () => {
+    if (!selectedClassId) {
       addNotification("Please select a class.", "error");
       return;
     }
@@ -25,47 +31,88 @@ function CreateSessionTab({ classes, totalSessions, setTotalSessions, addNotific
       return;
     }
 
-    const sessionData = {
-      class: selectedClass,
-      duration: `${durationValue} ${durationUnit}`,
-      startTime: startTime,
-    };
+    setLoading(true);
+    try {
+      const selectedClass = classes.find(cls => cls.id === selectedClassId);
+      if (!selectedClass) {
+        addNotification("Selected class not found.", "error");
+        setLoading(false);
+        return;
+      }
 
-    const newSession = {
-      className: selectedClass,
-      dateAndTime: new Date(startTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
-      totalPresent: 0,
-      totalAbsent: 0,
-      totalStudents: 0, 
-      presentPercent: 0,
-      classID: selectedClass + "-" + Date.now(), 
-      duration: parseInt(durationValue),
-      durationUnit: durationUnit,
-      rawStartTime: startTime
-    };
+      const sessionsCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/sessions`);
+      const newSessionDoc = await addDoc(sessionsCollectionRef, {
+        classId: selectedClass.id,
+        className: selectedClass.name, // Store class name for easier display
+        teacherId: userId,
+        duration: parseInt(durationValue),
+        durationUnit: durationUnit,
+        startTime: new Date(startTime).toISOString(), // Store as ISO string for consistency
+        createdAt: new Date().toISOString(),
+        status: 'active', // 'active', 'ended'
+        totalStudents: selectedClass.students ? selectedClass.students.length : 0,
+        totalPresent: 0,
+        totalAbsent: 0,
+        // Mock classroom coordinates for QR data, ideally fetched from class data or teacher input
+        classroomLat: 28.6139, // Example latitude
+        classroomLon: 77.2090, // Example longitude
+      });
 
-    setTotalSessions(prev => [...prev, newSession]);
+      const qrData = {
+        sessionId: newSessionDoc.id,
+        timestamp: Date.now(), // Current time for QR expiration
+        classId: selectedClass.id,
+        className: selectedClass.name,
+        teacherId: userId,
+        // Include location for student side validation
+        classroomLat: 28.6139,
+        classroomLon: 77.2090,
+      };
 
-    setSessionDetailsForQR(sessionData);
-    setCurrentView("qrCode");
+      setSessionDetailsForQR(qrData);
+      setCurrentView("qrCode");
+      addNotification("Session created successfully! QR code is now displayed.", "success");
 
-    addNotification("Session created successfully! QR code is now displayed.", "success");
+    } catch (error) {
+      console.error("Error creating session:", error);
+      addNotification("Failed to create session. Please try again.", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEndSessionInFirestore = async (sessionId) => {
+    setLoading(true);
+    try {
+      const sessionDocRef = doc(db, `artifacts/${appId}/users/${userId}/sessions`, sessionId);
+      await updateDoc(sessionDocRef, {
+        status: 'ended',
+        endTime: new Date().toISOString(),
+      });
+      addNotification("Session ended successfully!", "success");
+    } catch (error) {
+      console.error("Error ending session in Firestore:", error);
+      addNotification("Failed to end session. Please try again.", "error");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleBackToCreateSession = () => {
     setCurrentView("form");
     setSessionDetailsForQR(null);
-    setSelectedClass('');
+    setSelectedClassId('');
     setDurationValue('');
     setStartTime('');
   };
 
-
   return (
     <div className="w-full h-full flex flex-col items-center justify-start">
+      {loading && <Spinner message="Creating session..." />}
+
       {currentView === "form" && (
         <div className="w-full h-full flex flex-col items-start justify-start transition-all duration-300 ">
-          <h2 className="text-2xl font-semibold  text-blue-700 mb-6">Create New Session</h2>
+          <h2 className="text-2xl font-semibold text-blue-700 mb-6">Create New Session</h2>
 
           <div className="w-full space-y-6 flex-grow overflow-y-auto px-1">
             <div className="flex flex-col items-start">
@@ -73,13 +120,13 @@ function CreateSessionTab({ classes, totalSessions, setTotalSessions, addNotific
               <select
                 name="class"
                 id="selectClass"
-                value={selectedClass}
-                onChange={(e) => setSelectedClass(e.target.value)}
+                value={selectedClassId}
+                onChange={(e) => setSelectedClassId(e.target.value)}
                 className="w-full md:w-80 px-4 py-2 rounded-lg border border-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-400 transition-shadow"
               >
                 <option value="">-- Select a class --</option>
-                {classes.map((myclass, index) => (
-                  <option key={index} value={myclass}>{myclass}</option>
+                {classes.map((myclass) => (
+                  <option key={myclass.id} value={myclass.id}>{myclass.name}</option>
                 ))}
               </select>
             </div>
@@ -120,14 +167,15 @@ function CreateSessionTab({ classes, totalSessions, setTotalSessions, addNotific
             <button
               onClick={handleCreateSession}
               className="px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-bold shadow-md mt-4"
+              disabled={loading}
             >
-              Create Session
+              {loading ? <Spinner size="small" color="white" /> : 'Create Session'}
             </button>
           </div>
         </div>
       )}
 
-      {currentView === "qrCode" && (
+      {currentView === "qrCode" && sessionDetailsForQR && (
         <div className="flex flex-col items-center justify-center h-full w-full py-4 transition-all duration-300">
           <p className="text-gray-600 mb-4 text-center">Share this QR code with students for attendance.</p>
           <div className="w-full flex items-center justify-center flex-grow">
@@ -135,11 +183,13 @@ function CreateSessionTab({ classes, totalSessions, setTotalSessions, addNotific
               sessionData={sessionDetailsForQR}
               handleBack={handleBackToCreateSession}
               addNotification={addNotification}
+              onEndSession={handleEndSessionInFirestore} // Pass the Firestore end session handler
             />
           </div>
           <button
             onClick={handleBackToCreateSession}
             className="mt-8 px-6 py-3 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-semibold shadow-md"
+            disabled={loading}
           >
             Back to Create Session
           </button>

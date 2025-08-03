@@ -1,21 +1,12 @@
-import React, { useState } from 'react';
-import { LayoutDashboard, Users, BookOpen, CalendarCheck, Bell, Settings, LogOut, Menu, X } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { LayoutDashboard, Users, BookOpen, CalendarCheck, Bell, Settings, LogOut, Menu, X, Edit, Trash2 } from 'lucide-react';
+import { collection, query, onSnapshot, doc, updateDoc, deleteDoc } from 'firebase/firestore'; // Removed collectionGroup
+import { useFirebase } from './FirebaseContext';
+import { signOut } from 'firebase/auth'; // Only signOut is needed client-side for admin
+import Spinner from './Spinner';
 
-const AdminOverview = ({ addNotification }) => {
-  const stats = [
-    { label: 'Total Students', value: 1250, icon: <Users size={24} className="text-blue-500" /> },
-    { label: 'Active Courses', value: 45, icon: <BookOpen size={24} className="text-green-500" /> },
-    { label: 'Pending Registrations', value: 8, icon: <Bell size={24} className="text-yellow-500" /> },
-    { label: 'Recent Absences', value: 15, icon: <CalendarCheck size={24} className="text-red-500" /> },
-  ];
-
-  const recentActivities = [
-    { id: 1, type: 'User Registered', details: 'John Smith (ID: STU1251) enrolled in Computer Science.', date: '2025-07-30 14:30' },
-    { id: 2, type: 'Course Updated', details: 'Web Dev 101 syllabus updated by Admin.', date: '2025-07-29 10:15' },
-    { id: 3, type: 'Attendance Marked', details: 'All students for Database Management marked present.', date: '2025-07-29 09:00' },
-    { id: 4, type: 'New Announcement', details: 'Holiday on August 15th announced to all students.', date: '2025-07-28 16:00' },
-  ];
-
+// Admin Overview Component
+const AdminOverview = ({ stats, recentActivities }) => {
   return (
     <div className="p-4 sm:p-6 bg-white rounded-lg shadow-md">
       <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-4">Dashboard Overview</h2>
@@ -37,17 +28,171 @@ const AdminOverview = ({ addNotification }) => {
       <div className="bg-gray-50 p-4 rounded-lg shadow-sm">
         <h3 className="text-lg font-semibold text-gray-800 mb-4">Recent Activities</h3>
         <ul className="divide-y divide-gray-200">
-          {recentActivities.map(activity => (
-            <li key={activity.id} className="py-3 flex items-start">
-              <span className="flex-shrink-0 w-3 h-3 bg-blue-400 rounded-full mt-1.5 mr-3"></span>
-              <div>
-                <p className="text-gray-800 font-medium">{activity.type}</p>
-                <p className="text-gray-600 text-sm">{activity.details}</p>
-                <p className="text-gray-400 text-xs mt-1">{activity.date}</p>
-              </div>
-            </li>
-          ))}
+          {recentActivities.length === 0 ? (
+            <p className="text-gray-500 text-center py-3">No recent activities.</p>
+          ) : (
+            recentActivities.map(activity => (
+              <li key={activity.id} className="py-3 flex items-start">
+                <span className="flex-shrink-0 w-3 h-3 bg-blue-400 rounded-full mt-1.5 mr-3"></span>
+                <div>
+                  <p className="text-gray-800 font-medium">{activity.type}</p>
+                  <p className="text-gray-600 text-sm">{activity.details}</p>
+                  <p className="text-gray-400 text-xs mt-1">{activity.date}</p>
+                </div>
+              </li>
+            ))
+          )}
         </ul>
+      </div>
+    </div>
+  );
+};
+
+// User Management Component
+const UserManagement = ({ users, addNotification, db, userId, auth, appId }) => {
+  const [editingUser, setEditingUser] = useState(null);
+  const [newRole, setNewRole] = useState('');
+  const [loadingAction, setLoadingAction] = useState(false);
+
+  const handleEditRole = (user) => {
+    setEditingUser(user);
+    setNewRole(user.role);
+  };
+
+  const handleSaveRole = async () => {
+    if (!editingUser) return;
+    setLoadingAction(true);
+    try {
+      // Update role in the private user profile
+      const privateUserProfileRef = doc(db, `artifacts/${appId}/users/${editingUser.uid}/profile`, 'userProfile');
+      await updateDoc(privateUserProfileRef, { role: newRole });
+
+      // Update role in the public user profile for admin access
+      const publicUserProfileRef = doc(db, `artifacts/${appId}/public/data/allUserProfiles`, editingUser.uid);
+      await updateDoc(publicUserProfileRef, { role: newRole });
+
+      addNotification(`Role for ${editingUser.fullName || editingUser.email} updated to ${newRole}.`, 'success');
+      setEditingUser(null);
+    } catch (error) {
+      console.error("Error updating user role:", error);
+      addNotification(`Failed to update role for ${editingUser.fullName || editingUser.email}.`, 'error');
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+  const handleDeleteUser = async (userToDelete) => {
+    // Prevent admin from deleting themselves
+    if (userToDelete.uid === userId) {
+      addNotification("You cannot delete your own admin account from here.", "error");
+      return;
+    }
+
+    const confirmDelete = window.confirm(`Are you sure you want to delete user "${userToDelete.fullName || userToDelete.email}"? This action is irreversible and will delete their account and data.`);
+    if (!confirmDelete) {
+      return;
+    }
+
+    setLoadingAction(true);
+    try {
+      // Delete user's profile document from private location
+      const privateUserProfileRef = doc(db, `artifacts/${appId}/users/${userToDelete.uid}/profile`, 'userProfile');
+      await deleteDoc(privateUserProfileRef);
+
+      // Delete user's profile document from public location
+      const publicUserProfileRef = doc(db, `artifacts/${appId}/public/data/allUserProfiles`, userToDelete.uid);
+      await deleteDoc(publicUserProfileRef);
+
+      // IMPORTANT: Deleting the Firebase Auth user requires server-side logic (e.g., Cloud Function)
+      // as client-side `deleteUser(user)` only works for the currently signed-in user.
+      // For a full solution, this would trigger a Cloud Function.
+      addNotification(`User "${userToDelete.fullName || userToDelete.email}" (profile data) deleted. Firebase Auth user might still exist.`, 'warning');
+
+    } catch (error) {
+      console.error("Error deleting user:", error);
+      addNotification(`Failed to delete user "${userToDelete.fullName || userToDelete.email}".`, 'error');
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+
+  return (
+    <div className="p-4 sm:p-6 bg-white rounded-lg shadow-md relative">
+      {loadingAction && <Spinner message="Performing action..." />}
+      <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-3 sm:mb-4">User Management</h2>
+      <p className="text-sm sm:text-base text-gray-600 mb-6">Manage student, teacher, and admin accounts.</p>
+
+      <div className="overflow-x-auto rounded-lg shadow-inner bg-gray-50 border border-gray-100">
+        <table className="min-w-full text-sm text-left text-gray-600">
+          <thead className="text-xs bg-blue-100 text-blue-800 uppercase tracking-wider">
+            <tr>
+              <th className="px-6 py-3">Full Name</th>
+              <th className="px-6 py-3">Email</th>
+              <th className="px-6 py-3">Role</th>
+              <th className="px-6 py-3">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {users.length === 0 ? (
+              <tr>
+                <td colSpan="4" className="px-6 py-4 text-center text-gray-500">No users found.</td>
+              </tr>
+            ) : (
+              users.map(user => (
+                <tr key={user.uid} className="border-b hover:bg-gray-50 transition-colors">
+                  <td className="px-6 py-4 font-medium">{user.fullName || 'N/A'}</td>
+                  <td className="px-6 py-4">{user.email}</td>
+                  <td className="px-6 py-4 capitalize">
+                    {editingUser?.uid === user.uid ? (
+                      <select
+                        value={newRole}
+                        onChange={(e) => setNewRole(e.target.value)}
+                        className="p-1 border rounded"
+                        disabled={loadingAction}
+                      >
+                        <option value="student">Student</option>
+                        <option value="teacher">Teacher</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                    ) : (
+                      user.role
+                    )}
+                  </td>
+                  <td className="px-6 py-4 flex space-x-2">
+                    {editingUser?.uid === user.uid ? (
+                      <button
+                        onClick={handleSaveRole}
+                        className="p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200"
+                        title="Save Role"
+                        disabled={loadingAction}
+                      >
+                        Save
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleEditRole(user)}
+                        className="p-1 rounded-full text-blue-600 hover:bg-blue-100"
+                        title="Edit Role"
+                        disabled={loadingAction}
+                      >
+                        <Edit size={18} />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleDeleteUser(user)}
+                      className="p-1 rounded-full text-red-600 hover:bg-red-100"
+                      title="Delete User"
+                      disabled={loadingAction}
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -57,44 +202,90 @@ const AdminOverview = ({ addNotification }) => {
 function AdminDashboard({ addNotification }) {
   const [activeSection, setActiveSection] = useState('overview');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [allUsers, setAllUsers] = useState([]);
+  const [loadingUsers, setLoadingUsers] = useState(true);
+  const { db, auth, userId } = useFirebase();
+  const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+  // Fetch all user profiles from the new public collection
+  useEffect(() => {
+    if (db) {
+      setLoadingUsers(true);
+      const allUserProfilesRef = collection(db, `artifacts/${appId}/public/data/allUserProfiles`);
+      const q = query(allUserProfilesRef);
+
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const fetchedUsers = [];
+        snapshot.forEach(docSnap => {
+          fetchedUsers.push({ uid: docSnap.id, ...docSnap.data() });
+        });
+        setAllUsers(fetchedUsers);
+        setLoadingUsers(false);
+      }, (error) => {
+        console.error("Error fetching all users:", error);
+        addNotification("Failed to load user list.", "error");
+        setLoadingUsers(false);
+      });
+
+      return () => unsubscribe();
+    }
+  }, [db, appId, addNotification]);
+
 
   const renderContent = () => {
     switch (activeSection) {
       case 'overview':
-        return <AdminOverview addNotification={addNotification} />;
+        const stats = [
+          { label: 'Total Users', value: allUsers.length, icon: <Users size={24} className="text-blue-500" /> },
+          { label: 'Teachers', value: allUsers.filter(u => u.role === 'teacher').length, icon: <BookOpen size={24} className="text-green-500" /> },
+          { label: 'Students', value: allUsers.filter(u => u.role === 'student').length, icon: <Users size={24} className="text-purple-500" /> },
+          { label: 'Admins', value: allUsers.filter(u => u.role === 'admin').length, icon: <LayoutDashboard size={24} className="text-red-500" /> },
+        ];
+        const recentActivities = [
+          { id: 1, type: 'User Registered', details: 'John Smith (ID: STU1251) enrolled in Computer Science.', date: '2025-07-30 14:30' },
+        ];
+        return <AdminOverview stats={stats} recentActivities={recentActivities} />;
       case 'user-management':
         return (
-          <div className="p-4 sm:p-6">
-            <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-3 sm:mb-4">User Management</h2>
-            <p className="text-sm sm:text-base text-gray-600">Manage student and faculty accounts here.</p>
-          </div>
+          <UserManagement
+            users={allUsers}
+            addNotification={addNotification}
+            db={db}
+            userId={userId}
+            auth={auth}
+            appId={appId}
+          />
         );
       case 'course-management':
         return (
-          <div className="p-4 sm:p-6">
+          <div className="p-4 sm:p-6 bg-white rounded-lg shadow-md">
             <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-3 sm:mb-4">Course Management</h2>
             <p className="text-sm sm:text-base text-gray-600">Administer courses, classes, and schedules.</p>
+            <p className="text-gray-500 mt-4"> (Implementation coming soon)</p>
           </div>
         );
       case 'attendance-oversight':
         return (
-          <div className="p-4 sm:p-6">
+          <div className="p-4 sm:p-6 bg-white rounded-lg shadow-md">
             <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-3 sm:mb-4">Attendance Oversight</h2>
             <p className="text-sm sm:text-base text-gray-600">Monitor attendance records across all classes.</p>
+            <p className="text-gray-500 mt-4"> (Implementation coming soon)</p>
           </div>
         );
       case 'notifications':
         return (
-          <div className="p-4 sm:p-6">
+          <div className="p-4 sm:p-6 bg-white rounded-lg shadow-md">
             <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-3 sm:mb-4">Announcements & Notifications</h2>
             <p className="text-sm sm:text-base text-gray-600">Send system-wide announcements to students.</p>
+            <p className="text-gray-500 mt-4"> (Implementation coming soon)</p>
           </div>
         );
       case 'settings':
         return (
-          <div className="p-4 sm:p-6">
-            <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-3 sm:mb-4">Settings</h2>
+          <div className="p-4 sm:p-6 bg-white rounded-lg shadow-md">
+            <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-3 sm:mb-4">Admin Settings</h2>
             <p className="text-sm sm:text-base text-gray-600">Configure dashboard and system settings.</p>
+            <p className="text-gray-500 mt-4"> (Implementation coming soon)</p>
           </div>
         );
       default:
@@ -107,13 +298,23 @@ function AdminDashboard({ addNotification }) {
     setIsSidebarOpen(false);
   };
 
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      addNotification("Admin logged out successfully!", "success");
+    } catch (error) {
+      console.error("Admin logout error:", error);
+      addNotification("Failed to log out admin.", "error");
+    }
+  };
+
   return (
-    <div className="flex h-screen bg-gray-100"> 
+    <div className="flex h-screen bg-gray-100 font-inter">
       <div
         className={`fixed inset-y-0 left-0 z-50 w-64 bg-blue-800 text-white flex flex-col p-4 shadow-lg
           transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
           transition-transform duration-300 ease-in-out
-          lg:static lg:translate-x-0 lg:shadow-none`} 
+          lg:static lg:translate-x-0 lg:shadow-none`}
       >
         <div className="flex justify-between items-center mb-6 lg:mb-8 border-b border-blue-700 pb-4">
           <div className="text-xl sm:text-2xl font-semibold">Admin Panel</div>
@@ -192,7 +393,7 @@ function AdminDashboard({ addNotification }) {
         {/* Logout Button */}
         <div className="mt-auto pt-3 sm:pt-4 border-t border-blue-700">
           <button
-            onClick={() => { addNotification("Admin logged out.", "info"); console.log("Admin Logged Out"); /* Implement actual logout logic */ }}
+            onClick={handleLogout}
             className="flex items-center w-full p-2 sm:p-3 rounded-lg text-left text-red-300 hover:bg-blue-700 transition-colors duration-200 text-sm sm:text-base"
           >
             <LogOut size={18} className="mr-2 sm:mr-3" />
@@ -223,7 +424,7 @@ function AdminDashboard({ addNotification }) {
           <div className="flex items-center space-x-2 sm:space-x-4">
             <span className="text-xs sm:text-base text-gray-700 hidden sm:block">Admin User</span>
             <img
-              src="/src/assets/user.png"
+              src="/src/assets/user.png" // Placeholder image for admin profile
               alt="Admin Profile"
               className="w-8 h-8 sm:w-10 sm:h-10 rounded-full border-2 border-blue-400"
             />
@@ -231,7 +432,11 @@ function AdminDashboard({ addNotification }) {
         </header>
 
         <main className="flex-1 p-4 sm:p-6 overflow-y-auto">
-          {renderContent()}
+          {loadingUsers ? (
+            <Spinner message="Loading user data for admin dashboard..." />
+          ) : (
+            renderContent()
+          )}
         </main>
       </div>
     </div>

@@ -1,115 +1,157 @@
-import React, { useState, useEffect } from 'react';
-import { ChartBar, CalendarDays, BookOpen, Clock, AlertTriangle } from 'lucide-react';
+import React, { useState, useEffect } from "react";
+import { collection, query, where, onSnapshot, doc, getDoc } from "firebase/firestore";
+import { useFirebase } from './FirebaseContext';
+import Spinner from "./Spinner";
 
-function StudentAttendanceReport({ studentInfo, addNotification }) {
-  const [detailedAttendance, setDetailedAttendance] = useState([
-    { id: 'att001', class: 'Web Development 101', date: '2025-07-30', time: '10:00 AM', status: 'Present' },
-    { id: 'att002', class: 'Data Structures & Algorithms', date: '2025-07-29', time: '09:00 AM', status: 'Absent' },
-    { id: 'att003', class: 'Database Management', date: '2025-07-28', time: '02:00 PM', status: 'Late', lateMinutes: 15 },
-    { id: 'att004', class: 'Mathematics 101', date: '2025-07-27', time: '11:00 AM', status: 'Present' },
-    { id: 'att005', class: 'Physics Fundamentals', date: '2025-07-26', time: '09:00 AM', status: 'Present' },
-    { id: 'att006', class: 'Web Development 101', date: '2025-07-23', time: '10:00 AM', status: 'Present' },
-    { id: 'att007', class: 'Data Structures & Algorithms', date: '2025-07-22', time: '09:00 AM', status: 'Absent' },
-    { id: 'att008', class: 'Database Management', date: '2025-07-21', time: '02:00 PM', status: 'Present' },
-    { id: 'att009', class: 'Mathematics 101', date: '2025-07-20', time: '11:00 AM', status: 'Present' },
-    { id: 'att010', class: 'Physics Fundamentals', date: '2025-07-19', time: '09:00 AM', status: 'Late', lateMinutes: 5 },
-    { id: 'att011', class: 'Web Development 101', date: '2025-07-16', time: '10:00 AM', status: 'Present' },
-    { id: 'att012', class: 'Data Structures & Algorithms', date: '2025-07-15', time: '09:00 AM', status: 'Absent' },
-    { id: 'att013', class: 'Database Management', date: '2025-07-14', time: '02:00 PM', status: 'Present' },
-    { id: 'att014', class: 'Mathematics 101', date: '2025-07-13', time: '11:00 AM', status: 'Present' },
-    { id: 'att015', class: 'Physics Fundamentals', date: '2025-07-12', time: '09:00 AM', status: 'Present' },
-  ]);
+function StudentAttendanceReport({ addNotification, studentProfile }) {
+  const [attendanceRecords, setAttendanceRecords] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [sessionsMap, setSessionsMap] = useState({}); // To store session details by sessionId
+  const [classesMap, setClassesMap] = useState({}); // To store class details by classId
 
-  // Calculate overall statistics
-  const totalClasses = detailedAttendance.length;
-  const presentCount = detailedAttendance.filter(rec => rec.status === 'Present').length;
-  const absentCount = detailedAttendance.filter(rec => rec.status === 'Absent').length;
-  const lateCount = detailedAttendance.filter(rec => rec.status === 'Late').length;
-
-  const presentPercentage = totalClasses > 0 ? ((presentCount / totalClasses) * 100).toFixed(1) : 0;
-  const absentPercentage = totalClasses > 0 ? ((absentCount / totalClasses) * 100).toFixed(1) : 0;
-  const latePercentage = totalClasses > 0 ? ((lateCount / totalClasses) * 100).toFixed(1) : 0;
+  const { db, userId } = useFirebase();
+  const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
   useEffect(() => {
-      addNotification("Attendance report loaded.", "info");
-  }, [addNotification]);
+    if (!db || !userId) {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    const attendanceCollectionRef = collection(db, `artifacts/${appId}/public/data/attendanceRecords`);
+    const q = query(attendanceCollectionRef, where("studentId", "==", userId));
+
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
+      const fetchedRecords = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setAttendanceRecords(fetchedRecords);
+
+      // Fetch associated session and class details for each record
+      const uniqueSessionIds = [...new Set(fetchedRecords.map(record => record.sessionId))];
+      const uniqueClassIds = [...new Set(fetchedRecords.map(record => record.classId))];
+      const uniqueTeacherIds = [...new Set(fetchedRecords.map(record => record.teacherId))]; // To get teacher's sessions
+
+      const newSessionsMap = { ...sessionsMap };
+      const newClassesMap = { ...classesMap };
+
+      // Fetch session details
+      for (const sessionId of uniqueSessionIds) {
+        if (!newSessionsMap[sessionId]) {
+          const record = fetchedRecords.find(rec => rec.sessionId === sessionId);
+          if (record && record.teacherId) {
+            try {
+              const sessionDocRef = doc(db, `artifacts/${appId}/users/${record.teacherId}/sessions`, sessionId);
+              const sessionSnap = await getDoc(sessionDocRef);
+              if (sessionSnap.exists()) {
+                newSessionsMap[sessionId] = { id: sessionSnap.id, ...sessionSnap.data() };
+              }
+            } catch (error) {
+              console.error(`Error fetching session ${sessionId}:`, error);
+            }
+          }
+        }
+      }
+      setSessionsMap(newSessionsMap);
+
+      // Fetch class details (from the teacher who created the class)
+      // This is a bit more complex as class is under teacher's user ID.
+      // We might need to iterate through all teachers or store classId-teacherId mapping
+      // For now, we'll try to fetch from the teacher who created the session.
+      for (const classId of uniqueClassIds) {
+        if (!newClassesMap[classId]) {
+          const record = fetchedRecords.find(rec => rec.classId === classId);
+          if (record && record.teacherId) {
+            try {
+              const classDocRef = doc(db, `artifacts/${appId}/users/${record.teacherId}/classes`, classId);
+              const classSnap = await getDoc(classDocRef);
+              if (classSnap.exists()) {
+                newClassesMap[classId] = { id: classSnap.id, ...classSnap.data() };
+              }
+            } catch (error) {
+              console.error(`Error fetching class ${classId}:`, error);
+            }
+          }
+        }
+      }
+      setClassesMap(newClassesMap);
+
+      setLoading(false);
+    }, (error) => {
+      console.error("Error fetching attendance records:", error);
+      addNotification("Failed to load attendance records.", "error");
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [db, userId, appId, addNotification, sessionsMap, classesMap]);
+
+  // Calculate overall attendance statistics
+  const totalPresent = attendanceRecords.length;
+  // To get total sessions, we would need to know all sessions the student was enrolled in,
+  // which implies fetching student's enrolled classes and then all sessions for those classes.
+  // For simplicity, we'll just show present count for now.
+  const totalSessionsAttended = attendanceRecords.length;
+
 
   return (
-    <div className="flex flex-col h-full bg-gray-50 p-4 sm:p-6 rounded-br-3xl">
-      <h1 className="text-2xl sm:text-3xl font-bold text-blue-800 mb-6 sm:mb-8 flex items-center">
-        <ChartBar size={28} className="mr-2 sm:mr-3 text-blue-600" /> 
-        My Attendance Report
-      </h1>
+    <div className="w-full h-full flex flex-col items-start justify-start p-4">
+      <h2 className="text-2xl font-semibold text-blue-700 mb-6">Your Attendance Report</h2>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6 mb-8 sm:mb-10">
-        <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md text-center border border-green-200">
-          <h3 className="text-base sm:text-xl font-semibold text-gray-700 mb-1 sm:mb-2">Present</h3>
-          <p className="text-3xl sm:text-4xl font-bold text-green-600">{presentCount}</p>
-          <p className="text-xs sm:text-sm text-gray-500">({presentPercentage}%)</p>
-        </div>
-        <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md text-center border border-red-200">
-          <h3 className="text-base sm:text-xl font-semibold text-gray-700 mb-1 sm:mb-2">Absent</h3>
-          <p className="text-3xl sm:text-4xl font-bold text-red-600">{absentCount}</p>
-          <p className="text-xs sm:text-sm text-gray-500">({absentPercentage}%)</p>
-        </div>
-        <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md text-center border border-yellow-200">
-          <h3 className="text-base sm:text-xl font-semibold text-gray-700 mb-1 sm:mb-2">Late</h3>
-          <p className="text-3xl sm:text-4xl font-bold text-yellow-600">{lateCount}</p>
-          <p className="text-xs sm:text-sm text-gray-500">({latePercentage}%)</p>
-        </div>
-        <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md text-center border border-blue-200">
-          <h3 className="text-base sm:text-xl font-semibold text-gray-700 mb-1 sm:mb-2">Total Classes</h3>
-          <p className="text-3xl sm:text-4xl font-bold text-blue-600">{totalClasses}</p>
-          <p className="text-xs sm:text-sm text-gray-500">Records tracked</p>
+      {loading && <Spinner message="Loading attendance data..." />}
+
+      <div className="bg-white rounded-xl shadow-md p-6 w-full max-w-4xl mb-8 border border-gray-100">
+        <h3 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b border-gray-200">Summary</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="flex flex-col bg-blue-50 p-4 rounded-lg shadow-sm">
+            <span className="text-sm text-gray-600">Total Sessions Attended</span>
+            <span className="text-3xl font-bold text-blue-700">{totalSessionsAttended}</span>
+          </div>
+          <div className="flex flex-col bg-green-50 p-4 rounded-lg shadow-sm">
+            <span className="text-sm text-gray-600">Overall Attendance Rate</span>
+            {/* This calculation needs total possible sessions, which is not readily available here */}
+            <span className="text-3xl font-bold text-green-700">N/A%</span>
+          </div>
         </div>
       </div>
 
-      {/* Detailed Attendance List */}
-      <div className="flex-grow bg-white p-4 sm:p-6 rounded-xl shadow-lg"> {/* Reduced mobile padding */}
-        <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-4 sm:mb-6 flex items-center">
-          <CalendarDays size={24} className="mr-2 sm:mr-3 text-gray-600" /> {/* Smaller icon on mobile */}
-          Detailed Attendance Log
-        </h2>
-        {detailedAttendance.length === 0 ? (
-          <p className="text-gray-500 text-center py-6 sm:py-8">No detailed attendance records available.</p>
-        ) : (
-          <div className="overflow-x-auto rounded-lg border border-gray-200"> {/* Makes table scroll horizontally */}
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+      <div className="bg-white rounded-xl shadow-md p-6 w-full max-w-4xl border border-gray-100 flex-grow flex flex-col">
+        <h3 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b border-gray-200">Detailed Records</h3>
+        <div className="overflow-x-auto rounded-lg shadow-inner bg-gray-50 border border-gray-100 flex-grow scrollbar-thin scrollbar-thumb-blue-300 scrollbar-track-blue-100">
+          <table className="min-w-full text-sm text-left text-gray-600">
+            <thead className="text-xs bg-blue-100 text-blue-800 uppercase tracking-wider">
+              <tr>
+                <th className="px-6 py-3">Date & Time</th>
+                <th className="px-6 py-3">Class</th>
+                <th className="px-6 py-3">Session ID</th>
+                <th className="px-6 py-3">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {attendanceRecords.length === 0 ? (
                 <tr>
-                  <th className="px-3 py-2 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Class</th>
-                  <th className="px-3 py-2 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                  <th className="px-3 py-2 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
-                  <th className="px-3 py-2 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                  <th className="px-3 py-2 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Remarks</th>
+                  <td colSpan="4" className="px-6 py-4 text-center text-gray-500">No attendance records found.</td>
                 </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {detailedAttendance.map((record) => (
-                  <tr key={record.id} className="hover:bg-gray-50">
-                    <td className="px-3 py-3 sm:px-6 sm:py-4 whitespace-nowrap text-sm font-medium text-gray-900">{record.class}</td>
-                    <td className="px-3 py-3 sm:px-6 sm:py-4 whitespace-nowrap text-sm text-gray-500">{record.date}</td>
-                    <td className="px-3 py-3 sm:px-6 sm:py-4 whitespace-nowrap text-sm text-gray-500">{record.time}</td>
-                    <td className="px-3 py-3 sm:px-6 sm:py-4 whitespace-nowrap text-sm">
-                      <span className={`px-2 py-0.5 sm:px-3 sm:py-1 inline-flex text-xs leading-5 font-semibold rounded-full
-                                        ${record.status === 'Present' ? 'bg-green-100 text-green-800' :
-                                          record.status === 'Absent' ? 'bg-red-100 text-red-800' :
-                                          'bg-yellow-100 text-yellow-800'}`
-                      }>
-                        {record.status}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3 sm:px-6 sm:py-4 text-sm text-gray-500">
-                      {record.status === 'Late' && `Late by ${record.lateMinutes} min`}
-                      {record.status === 'Absent' && `Reason not provided`}
-                      {record.status === 'Present' && `-`}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+              ) : (
+                attendanceRecords.map((record) => {
+                  const session = sessionsMap[record.sessionId];
+                  const className = session?.className || record.className || 'Unknown Class'; // Fallback to record's className
+                  const sessionTime = session ? new Date(session.startTime).toLocaleString() : new Date(record.timestamp).toLocaleString();
+
+                  return (
+                    <tr key={record.id} className="border-b hover:bg-gray-50 transition-colors">
+                      <td className="px-6 py-4 font-medium">{sessionTime}</td>
+                      <td className="px-6 py-4">{className}</td>
+                      <td className="px-6 py-4 break-all">{record.sessionId}</td>
+                      <td className={`px-6 py-4 font-semibold ${record.status === "present" ? "text-green-600" : "text-red-500"}`}>
+                        {record.status.charAt(0).toUpperCase() + record.status.slice(1)}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

@@ -1,38 +1,57 @@
-import React, { useEffect } from 'react';
+import React from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { CheckCircle, XCircle, Info, AlertTriangle } from 'lucide-react';
 
-function NotificationSystem({ notifications, setNotifications }) {
-  useEffect(() => {
-    if (notifications.length > 0) {
-      const timer = setTimeout(() => {
-        setNotifications(prev => prev.slice(1));
-      }, 5000); 
+function NotificationSystem({ notification }) {
+  if (!notification) {
+    return null; // Don't render anything if there's no active notification
+  }
 
-      return () => clearTimeout(timer);
+  const getIcon = (type) => {
+    switch (type) {
+      case 'success': return <CheckCircle size={20} className="text-white" />;
+      case 'error': return <XCircle size={20} className="text-white" />;
+      case 'info': return <Info size={20} className="text-white" />;
+      case 'warning': return <AlertTriangle size={20} className="text-white" />;
+      default: return null;
     }
-  }, [notifications, setNotifications]); 
+  };
+
+  let bgColorClass = '';
+  switch (notification.type) {
+    case 'success':
+      bgColorClass = 'bg-green-600';
+      break;
+    case 'error':
+      bgColorClass = 'bg-red-600';
+      break;
+    case 'warning':
+      bgColorClass = 'bg-yellow-600';
+      break;
+    case 'info':
+    default:
+      bgColorClass = 'bg-blue-600';
+      break;
+  }
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex flex-col space-y-2">
-      {notifications.map(notification => (
-        <div
-          key={notification.id}
-          className={`px-6 py-3 rounded-lg shadow-xl text-white font-medium flex items-center space-x-3
-            ${notification.type === "success" ? "bg-green-500" :
-             notification.type === "error" ? "bg-red-500" : "bg-blue-500"}`}
+    <AnimatePresence>
+      {notification && (
+        <motion.div
+          key={notification.id} // Key is crucial for AnimatePresence to track items
+          initial={{ opacity: 0, y: 50, x: '-50%' }}
+          animate={{ opacity: 1, y: 0, x: '-50%' }}
+          exit={{ opacity: 0, y: 50, x: '-50%' }}
+          transition={{ duration: 0.3, ease: "easeOut" }}
+          className={`fixed bottom-4 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-xl text-white font-medium flex items-center space-x-3 min-w-[250px] max-w-xs sm:max-w-md md:max-w-lg text-center ${bgColorClass}`}
+          role="alert"
         >
-          {notification.type === "success" && <img src="/src/assets/check-mark.png" style={{filter:"invert()"}} alt="Success" className="w-5 h-5" />}
-          {notification.type === "error" && <img src="/src/assets/warning.png" style={{filter:"invert()"}} alt="Error" className="w-5 h-5" />}
-          {notification.type === "info" && <img src="/src/assets/info.png" style={{filter:"invert()"}} alt="Info" className="w-5 h-5" />}
-          <span>{notification.message}</span>
-          <button
-            onClick={() => setNotifications(prev => prev.filter(n => n.id !== notification.id))}
-            className="ml-auto text-white hover:text-gray-100 font-bold"
-          >
-            &times; 
-          </button>
-        </div>
-      ))}
-    </div>
+          {getIcon(notification.type)}
+          <span className="flex-grow text-sm sm:text-base">{notification.message}</span>
+          {/* No close button needed here, as parent manages dismissal via timeout */}
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
