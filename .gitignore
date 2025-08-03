@@ -1,4 +1,5 @@
 # Logs
+serviceAccountkey.json
 .env
 logs
 *.log
