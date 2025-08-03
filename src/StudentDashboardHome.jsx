@@ -9,7 +9,7 @@ import { useFirebase } from './FirebaseContext';
 import { doc, getDoc } from 'firebase/firestore';
 
 // --- Backend API Base URL ---
-const API_BASE_URL = 'http://127.0.0.1:8000'; // Ensure this matches your FastAPI server URL
+const API_BASE_URL = 'https://presensync.onrender.com'; // Ensure this matches your FastAPI server URL
 
 // Constants for attendance logic (some moved to backend for consistency)
 const QR_EXPIRATION_TIME_MS = 5 * 60 * 1000; // 5 minutes in milliseconds (for initial QR validation)
