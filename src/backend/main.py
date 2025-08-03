@@ -17,17 +17,27 @@ from firebase_admin import credentials, auth, firestore
 load_dotenv()
 
 # --- Firebase Admin SDK Initialization ---
-SERVICE_ACCOUNT_KEY_PATH = os.getenv("FIREBASE_SERVICE_ACCOUNT_KEY_PATH", "serviceAccountKey.json")
+# Path to your service account key JSON file
+SERVICE_ACCOUNT_KEY_PATH = os.getenv("FIREBASE_SERVICE_ACCOUNT_KEY_PATH") # Read from .env
+SERVICE_ACCOUNT_KEY_JSON_STR = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON") # Read full JSON string from .env (for Render)
 
 try:
-    cred = credentials.Certificate(SERVICE_ACCOUNT_KEY_PATH)
+    if SERVICE_ACCOUNT_KEY_JSON_STR:
+        # If the JSON string is provided as an environment variable (e.g., on Render)
+        cred = credentials.Certificate(json.loads(SERVICE_ACCOUNT_KEY_JSON_STR))
+    elif SERVICE_ACCOUNT_KEY_PATH:
+        # If the path to the JSON file is provided (e.g., local development)
+        cred = credentials.Certificate(SERVICE_ACCOUNT_KEY_PATH)
+    else:
+        raise ValueError("Neither FIREBASE_SERVICE_ACCOUNT_KEY_PATH nor FIREBASE_SERVICE_ACCOUNT_JSON is set.")
+
     firebase_admin.initialize_app(cred)
     db = firestore.client()
     print("Firebase Admin SDK initialized successfully.")
 except Exception as e:
     print(f"Error initializing Firebase Admin SDK: {e}")
-    print("Ensure 'serviceAccountKey.json' is in the root directory or FIREBASE_SERVICE_ACCOUNT_KEY_PATH is set.")
-    exit(1)
+    print("Ensure FIREBASE_SERVICE_ACCOUNT_KEY_PATH in .env (local) or FIREBASE_SERVICE_ACCOUNT_JSON (Render env var) is set correctly.")
+    exit(1) # Exit if Firebase SDK cannot be initialized
 
 app = FastAPI(
     title="PresenSync Backend API",
@@ -36,9 +46,13 @@ app = FastAPI(
 )
 
 # --- CORS Middleware ---
+# Adjust origins based on your frontend's URL
 origins = [
-    "http://localhost:5173",
+    "http://localhost:5173",  # Your React frontend local development server
     "http://127.0.0.1:5173",
+    # Add your Vercel frontend URL here when deployed
+    # Example: "https://your-presensync-frontend.vercel.app",
+    "https://*.vercel.app", # Allow all Vercel subdomains for preview deployments
 ]
 
 app.add_middleware(
@@ -67,37 +81,40 @@ class UpdateUserRoleRequest(BaseModel):
 
 class GlobalNotificationRequest(BaseModel):
     message: str
-    type: str = "info"
+    type: str = "info" # info, success, warning, error
 
 # --- Authentication Dependency ---
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 async def get_current_user_from_token(request: Request, id_token: str = Depends(oauth2_scheme)):
     try:
+        # Verify the Firebase ID token
         decoded_token = auth.verify_id_token(id_token)
         uid = decoded_token['uid']
-        request.state.uid = uid
+        request.state.uid = uid # Store UID in request state for later use
 
-        app_id = os.getenv("FIREBASE_PROJECT_ID", "default-app-id")
+        # Fetch user's role from Firestore (private profile)
+        app_id = os.getenv("FIREBASE_PROJECT_ID", "default-app-id") # Ensure this matches your __app_id
         user_profile_ref = db.collection(f"artifacts/{app_id}/users/{uid}/profile").document("userProfile")
         user_profile_doc = user_profile_ref.get()
 
         if not user_profile_doc.exists:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User profile not found")
+            # This should ideally not happen for authenticated users, but as a safeguard
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User profile not found in Firestore.")
 
         user_data = user_profile_doc.to_dict()
-        request.state.role = user_data.get('role', 'student')
-        request.state.user_data = user_data
+        request.state.role = user_data.get('role', 'student') # Store role in request state
+        request.state.user_data = user_data # Store full user data for attendance marking
         return user_data
     except firebase_admin.auth.InvalidIdToken:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials.")
     except Exception as e:
         print(f"Authentication error: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not validate credentials")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Could not validate credentials: {e}")
 
 async def get_current_admin_user(current_user: dict = Depends(get_current_user_from_token)):
     if current_user.get('role') != 'admin':
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to perform this action")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to perform this action.")
     return current_user
 
 # --- Helper Functions ---
@@ -121,16 +138,20 @@ def haversine_distance(lat1, lon1, lat2, lon2):
 @app.post("/attendance/mark", summary="Mark student attendance")
 async def mark_attendance(
     request_data: MarkAttendanceRequest,
-    request: Request,
-    current_user: dict = Depends(get_current_user_from_token)
+    request: Request, # Inject the request object to access state
+    current_user: dict = Depends(get_current_user_from_token) # Ensure student is authenticated
 ):
-    student_id = request.state.uid
-    student_profile_data = request.state.user_data
+    student_id = request.state.uid # Get student UID from verified token
+    student_profile_data = request.state.user_data # Get full user data from state
     app_id = os.getenv("FIREBASE_PROJECT_ID", "default-app-id")
 
     # 0. Validate QR Code Timestamp Liveness
     QR_LIVENESS_WINDOW_SECONDS = 60 # QR code must be scanned within 60 seconds of its generation
-    qr_generated_time = datetime.fromisoformat(request_data.timestamp.replace('Z', '+00:00'))
+    try:
+        qr_generated_time = datetime.fromisoformat(request_data.timestamp.replace('Z', '+00:00'))
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid QR timestamp format.")
+        
     current_server_time = datetime.now()
 
     if (current_server_time - qr_generated_time).total_seconds() > QR_LIVENESS_WINDOW_SECONDS:
@@ -148,13 +169,16 @@ async def mark_attendance(
     if session_data.get('status') != 'active':
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Session is not active.")
 
-    session_start_time = datetime.fromisoformat(session_data['startTime'].replace('Z', '+00:00'))
+    try:
+        session_start_time = datetime.fromisoformat(session_data['startTime'].replace('Z', '+00:00'))
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid session start time format.")
+
     duration_minutes = session_data['duration']
     if session_data['durationUnit'] == 'hrs':
         duration_minutes *= 60
     session_end_time = session_start_time + timedelta(minutes=duration_minutes)
     
-    # Use the current_server_time for session time window check
     if not (session_start_time <= current_server_time <= session_end_time):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Attendance outside session time window.")
 
@@ -187,7 +211,7 @@ async def mark_attendance(
         "studentId": student_id,
         "studentName": student_profile_data.get('fullName', 'Unknown Student'),
         "studentRollNo": student_profile_data.get('rollNo', 'N/A'),
-        "timestamp": current_server_time.isoformat(), # Backend's timestamp for record integrity
+        "timestamp": datetime.now().isoformat(), # Backend's timestamp for record integrity
         "status": "present",
         "verified_latitude": request_data.latitude,
         "verified_longitude": request_data.longitude,
