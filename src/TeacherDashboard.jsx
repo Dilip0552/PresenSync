@@ -8,7 +8,6 @@ import CreateSessionTab from "./CreateSessionTab";
 import ManageClassesTab from "./ManageClassesTab";
 import AttendanceReportsTab from "./AttendanceReportsTab";
 import ProfileSettingsModal from "./ProfileSettingsModal";
-
 import DashboardOverview from "./DashboardOverview"
 import Sidebar from "./Sidebar";
 import Header from "./Header";
@@ -23,7 +22,8 @@ function TeacherDashboard() {
   const [notifications, setNotifications] = useState([]);
   const [loadingData, setLoadingData] = useState(true);
   const [teacherProfile, setTeacherProfile] = useState(null); // This holds the user's profile data
-const [isSidebarOpen, setIsSidebarOpen] = useState(false); 
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false); 
+
   const navigate = useNavigate();
   const location = useLocation();
   const { db, auth, userId } = useFirebase(); // Get db, auth, userId
@@ -59,7 +59,10 @@ const [isSidebarOpen, setIsSidebarOpen] = useState(false);
           console.error("TeacherDashboard: Error fetching teacher profile:", error);
           addNotification("Failed to load teacher profile.", "error");
         } finally {
-          // This setLoadingData is managed by other effects now, so we'll remove it here
+          // Set loadingData to false only after profile fetch attempt
+          // (Other data fetching will also set this, but ensure it's reset)
+          // For now, let's keep it here to see if it's the only loading block
+          // setLoadingData(false); // Commenting out for now, as other effects also manage this
         }
       };
       fetchProfile();
@@ -74,23 +77,24 @@ const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     if (db && userId) {
       setLoadingData(true);
       console.log("TeacherDashboard: Setting up classes listener for userId:", userId, "path:", `artifacts/${appId}/users/${userId}/classes`);
+      console.log("TeacherDashboard: Fetching classes for userId:", userId);
       const classesCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/classes`);
       const q = query(classesCollectionRef);
 
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const fetchedClasses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setClasses(fetchedClasses);
-        console.log("TeacherDashboard: onSnapshot received classes data. Count:", fetchedClasses.length, "Data:", fetchedClasses);
+        console.log("TeacherDashboard: Fetched classes:", fetchedClasses);
         setLoadingData(false);
       }, (error) => {
-        console.error("TeacherDashboard: Error fetching classes with onSnapshot:", error);
+        console.error("TeacherDashboard: Error fetching classes:", error);
         addNotification("Failed to load classes.", "error");
         setLoadingData(false);
       });
 
       return () => unsubscribe();
     } else {
-      console.log("TeacherDashboard: userId or db not available for classes listener setup. userId:", userId, "db:", db);
+      console.log("TeacherDashboard: userId or db not available for classes fetch. userId:", userId, "db:", db);
     }
   }, [db, userId, appId, addNotification]);
 
@@ -99,23 +103,24 @@ const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     if (db && userId) {
       setLoadingData(true);
       console.log("TeacherDashboard: Setting up sessions listener for userId:", userId, "path:", `artifacts/${appId}/users/${userId}/sessions`);
+      console.log("TeacherDashboard: Fetching sessions for userId:", userId);
       const sessionsCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/sessions`);
       const q = query(sessionsCollectionRef);
 
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const fetchedSessions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setSessions(fetchedSessions);
-        console.log("TeacherDashboard: onSnapshot received sessions data. Count:", fetchedSessions.length, "Data:", fetchedSessions);
+        console.log("TeacherDashboard: Fetched sessions:", fetchedSessions);
         setLoadingData(false);
       }, (error) => {
-        console.error("TeacherDashboard: Error fetching sessions with onSnapshot:", error);
+        console.error("TeacherDashboard: Error fetching sessions:", error);
         addNotification("Failed to load sessions.", "error");
         setLoadingData(false);
       });
 
       return () => unsubscribe();
     } else {
-      console.log("TeacherDashboard: userId or db not available for sessions listener setup. userId:", userId, "db:", db);
+      console.log("TeacherDashboard: userId or db not available for sessions fetch. userId:", userId, "db:", db);
     }
   }, [db, userId, appId, addNotification]);
 
@@ -148,8 +153,11 @@ const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     }
   };
 
-  if (loadingData || teacherProfile === null) {
-    console.log("TeacherDashboard: Overall loading or profile not yet loaded. loadingData:", loadingData, "teacherProfile:", teacherProfile);
+  // The overall loading spinner should only hide when ALL data (profile, classes, sessions) is loaded
+  // For now, we'll keep it simple and rely on the last data fetch to set loadingData to false.
+  // A more robust solution would be to use multiple loading states or a Promise.all.
+  if (loadingData || teacherProfile === null) { // Also check if teacherProfile is still null
+    console.log("TeacherDashboard: Overall loading or profile not yet loaded.");
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-100">
         <Spinner message="Loading teacher dashboard data..." isVisible={true} />
@@ -159,25 +167,20 @@ const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   return (
     <div className="min-h-screen w-screen bg-gray-100 font-sans flex items-center justify-center p-4 md:p-8 overflow-hidden">
-      <div className="w-full max-w-8xl h-[calc(100vh-64px)] rounded-3xl shadow-2xl grid grid-cols-1 md:grid-cols-[256px_1fr] bg-white overflow-hidden">
-        {/* Sidebar is now always rendered, its visibility controlled by Sidebar component's internal logic */}
+      <div className="w-full max-w-8xl h-[calc(100vh-64px)] rounded-3xl shadow-2xl grid grid-cols-1 md:grid-cols-5 bg-white overflow-hidden">
         <Sidebar
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           setShowSettings={setShowSettings}
           handleLogout={handleLogout}
-          userRole={teacherProfile?.role || 'teacher'}
+          userRole={teacherProfile?.role || 'teacher'} 
           isSidebarOpen={isSidebarOpen}
           setIsSidebarOpen={setIsSidebarOpen}
+
         />
 
-        {/* Main content area takes remaining width on desktop */}
-        <div className="col-span-full md:col-span-auto flex flex-col h-full rounded-tr-3xl rounded-br-3xl overflow-hidden">
-          <Header
-            notifications={notifications}
-            userProfile={teacherProfile}
-            setIsSidebarOpen={setIsSidebarOpen}
-          />
+        <div className="col-span-4 flex flex-col h-full rounded-tr-3xl rounded-br-3xl overflow-hidden">
+          <Header notifications={notifications} userProfile={teacherProfile} setIsSidebarOpen={setIsSidebarOpen}/> {/* Pass teacherProfile as userProfile */}
 
           <div className="flex-grow p-6 bg-gray-50 rounded-br-3xl overflow-y-auto">
             <Routes>
