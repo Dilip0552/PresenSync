@@ -111,7 +111,7 @@ function StudentDashboard() {
         />
 
         {/* Main content area takes remaining width on desktop */}
-        <div className="col-span-full md:col-span-auto flex flex-col h-full rounded-tr-3xl rounded-br-3xl overflow-hidden">
+        <div className="flex flex-col h-full rounded-tr-3xl rounded-br-3xl overflow-hidden">
           <Header
             notifications={notifications}
             userProfile={studentProfile}
