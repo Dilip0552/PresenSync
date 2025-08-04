@@ -134,7 +134,7 @@ function Sidebar({ activeTab, setActiveTab, setShowSettings, handleLogout, userR
         <nav className="flex-grow">
           <ul className="space-y-3">
             {currentNavItems.map((item, index) => (
-              <li key={item.tab}> {/* No motion.li here for static desktop */}
+              <li key={item.tab}>
                 <NavLink
                   to={item.path}
                   className={({ isActive }) =>
@@ -144,6 +144,7 @@ function Sidebar({ activeTab, setActiveTab, setShowSettings, handleLogout, userR
                         : 'hover:bg-indigo-500 hover:bg-opacity-70 text-indigo-100'
                     }`
                   }
+                  // FIX: Pass a function reference to onClick, not a direct call
                   onClick={() => handleNavigation(item.path, item.tab)}
                 >
                   <item.icon size={20} className="mr-3" />
@@ -164,7 +165,7 @@ function Sidebar({ activeTab, setActiveTab, setShowSettings, handleLogout, userR
           </button>
           <button
             onClick={() => { handleLogout(); setIsSidebarOpen(false); }}
-            className="flex items-center w-full p-3 rounded-xl transition-all duration-200 bg-red-600 hover:bg-red-700 text-white shadow-md"
+            className="flex items-center w-full p-3 rounded-xl transition-all duration-300 bg-red-600 hover:bg-red-700 text-white shadow-md"
           >
             <LogOut size={20} className="mr-3" />
             <span className="font-medium">Logout</span>
