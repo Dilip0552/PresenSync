@@ -1,84 +1,101 @@
-// src/FirebaseContext.jsx
-import React, { createContext, useState, useEffect, useContext } from 'react';
-import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
-import { auth, db, loadModels } from './firebase';
-import Spinner from './Spinner'; // Make sure you have a Spinner component
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, onAuthStateChanged, setPersistence, browserLocalPersistence } from 'firebase/auth';
+import { getFirestore, doc, getDoc, setDoc } from 'firebase/firestore'; // Import setDoc
 
-// Create the context
+// Create the Firebase Context
 const FirebaseContext = createContext(null);
 
-// Custom hook to easily use the context
+// Custom hook to use the Firebase context
 export const useFirebase = () => useContext(FirebaseContext);
 
-// The provider component that wraps your app
+// Firebase Provider component
 export const FirebaseProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [userData, setUserData] = useState(null);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [modelsLoading, setModelsLoading] = useState(true);
+    const [app, setApp] = useState(null);
+    const [db, setDb] = useState(null);
+    const [auth, setAuth] = useState(null);
+    const [userId, setUserId] = useState(null);
+    const [idToken, setIdToken] = useState(null);
+    const [loadingAuth, setLoadingAuth] = useState(true);
 
-  useEffect(() => {
-    // 1. Load the face-api.js models
-    const initializeModels = async () => {
-      try {
-        await loadModels();
-        setModelsLoading(false);
-      } catch (error) {
-        console.error("Error loading face-api models:", error);
-        // Handle model loading failure if necessary
-        setModelsLoading(false); // Still stop loading to not block the app
-      }
-    };
-    
-    initializeModels();
+    useEffect(() => {
+        const initializeFirebase = async () => {
+            try {
+                const firebaseConfig = {
+                    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+                    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+                    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+                    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+                    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+                    appId: import.meta.env.VITE_FIREBASE_APP_ID,
+                };
 
-    // 2. Listen for authentication state changes
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      if (currentUser) {
-        setUser(currentUser);
-        const userDocRef = doc(db, 'users', currentUser.uid);
-        const userDocSnap = await getDoc(userDocRef);
-        if (userDocSnap.exists()) {
-          setUserData(userDocSnap.data());
-        } else {
-          setUserData(null); // Handle case where user exists in auth but not firestore
-        }
-      } else {
-        setUser(null);
-        setUserData(null);
-      }
-      setAuthLoading(false);
-    });
+                const appId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
 
-    // Cleanup subscription on unmount
-    return () => unsubscribe();
-  }, []);
+                const firebaseApp = initializeApp(firebaseConfig);
+                setApp(firebaseApp);
 
-  // The value that will be supplied to all consuming components
-  const value = {
-    user,
-    userData,
-    setUserData, // Allow components to update user data state if needed
-    loading: authLoading || modelsLoading, // Combined loading state
-    modelsLoaded: !modelsLoading,
-  };
+                const firestoreDb = getFirestore(firebaseApp);
+                setDb(firestoreDb);
 
-  // Show a full-screen loader until both auth and models are ready
-  if (authLoading || modelsLoading) {
+                const firebaseAuth = getAuth(firebaseApp);
+                setAuth(firebaseAuth);
+
+                await setPersistence(firebaseAuth, browserLocalPersistence);
+
+                const unsubscribe = onAuthStateChanged(firebaseAuth, async (user) => {
+                    if (user) {
+                        setUserId(user.uid);
+                        const token = await user.getIdToken();
+                        setIdToken(token);
+
+                        // Ensure user profile documents exist (private and public)
+                        const privateUserProfileRef = doc(firestoreDb, `artifacts/${appId}/users/${user.uid}/profile`, 'userProfile');
+                        const publicUserProfileRef = doc(firestoreDb, `artifacts/${appId}/public/data/allUserProfiles`, user.uid);
+
+                        const privateUserDocSnap = await getDoc(privateUserProfileRef);
+                        const publicUserDocSnap = await getDoc(publicUserProfileRef);
+
+                        // If either profile document is missing, create/update it
+                        if (!privateUserDocSnap.exists() || !publicUserDocSnap.exists()) {
+                            const initialProfileData = {
+                                uid: user.uid,
+                                email: user.email || null,
+                                displayName: user.displayName || `User-${user.uid.substring(0, 6)}`,
+                                fullName: user.displayName || `User-${user.uid.substring(0, 6)}`, // Ensure fullName is set
+                                role: 'student', // Default to student if profile is being created by FirebaseContext
+                                createdAt: new Date().toISOString(),
+                            };
+
+                            // Use setDoc with merge:true to create if not exists, or update if it does
+                            if (!privateUserDocSnap.exists()) {
+                                await setDoc(privateUserProfileRef, initialProfileData, { merge: true });
+                            }
+                            if (!publicUserDocSnap.exists()) {
+                                await setDoc(publicUserProfileRef, initialProfileData, { merge: true });
+                            }
+                        }
+                    } else {
+                        setUserId(null);
+                        setIdToken(null);
+                    }
+                    setLoadingAuth(false);
+                });
+
+                return () => unsubscribe();
+
+            } catch (error) {
+                console.error("Error initializing Firebase:", error);
+                setLoadingAuth(false);
+            }
+        };
+
+        initializeFirebase();
+    }, []);
+
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50">
-        <Spinner />
-        <p className="mt-4 text-gray-600">
-          {authLoading ? "Authenticating..." : "Loading recognition models..."}
-        </p>
-      </div>
+        <FirebaseContext.Provider value={{ app, db, auth, userId, idToken, loadingAuth }}>
+            {children}
+        </FirebaseContext.Provider>
     );
-  }
-
-  return (
-    <FirebaseContext.Provider value={value}>
-      {children}
-    </FirebaseContext.Provider>
-  );
 };
