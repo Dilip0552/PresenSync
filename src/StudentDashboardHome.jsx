@@ -9,7 +9,7 @@ import { useFirebase } from './FirebaseContext';
 import { doc, getDoc } from 'firebase/firestore';
 
 // --- Backend API Base URL ---
-const API_BASE_URL = 'https://presensync.onrender.com'; // Ensure this matches your Render backend URL
+const API_BASE_URL = 'https://presensync-backend.onrender.com'; // Ensure this matches your Render backend URL
 
 // Constants for attendance logic (some moved to backend for consistency)
 const QR_EXPIRATION_TIME_MS = 5 * 60 * 1000; // 5 minutes in milliseconds (for initial QR validation)
@@ -38,76 +38,105 @@ function haversineDistance(lat1, lon1, lat2, lon2) {
 }
 
 // Separate component for QR Scanner to manage its lifecycle
-const QrScannerComponent = ({ onScanSuccess, onScanError, qrScannerReady, setQrScannerReady, qrScanError, setQrScanError }) => {
+// This component will now be conditionally rendered outside AnimatePresence
+const QrScannerComponent = ({ onScanSuccess, onScanError, qrScannerReady, setQrScannerReady, qrScanError, setQrScanError, isVisible }) => {
     const qrCodeScannerRef = useRef(null);
+    const [isCameraStarting, setIsCameraStarting] = useState(true);
 
     useEffect(() => {
-        let scannerInstance = null;
-        setQrScanError(''); // Clear error on mount
-
-        const startScanner = async () => {
-            if (qrCodeScannerRef.current) {
-                // Scanner already initialized or in progress
-                return;
-            }
-
-            try {
-                scannerInstance = new Html5QrcodeScanner(
-                    "qr-reader",
-                    {
-                        fps: 10,
-                        qrbox: { width: 250, height: 250 },
-                        disableFlip: false,
-                        // Enhanced video constraints for better camera selection and resolution
-                        videoConstraints: {
-                            facingMode: { exact: "environment" }, // Try rear camera first
-                            width: { ideal: 1920 },
-                            height: { ideal: 1080 }
-                        }
-                    },
-                    false // disable audio
-                );
-
-                // Render the scanner. This initiates camera access.
-                await scannerInstance.render(onScanSuccess, onScanError);
-                qrCodeScannerRef.current = scannerInstance;
-                setQrScannerReady(true);
-                console.log("QR Scanner: Camera started successfully.");
-            } catch (error) {
-                console.error("QR Scanner: Failed to render scanner or start camera:", error);
+        // Only initialize if component is visible
+        if (!isVisible) {
+            // Ensure scanner is cleared if it somehow stayed active while hidden
+            if (qrCodeScannerRef.current && typeof qrCodeScannerRef.current.clear === 'function') {
+                qrCodeScannerRef.current.clear().catch(err => console.error("Failed to clear QR scanner when hidden:", err));
+                qrCodeScannerRef.current = null;
                 setQrScannerReady(false);
-                // Call the error handler to display user-friendly message
-                onScanError(error.name || error.message || "Failed to start camera.");
             }
-        };
+            return;
+        }
 
-        startScanner();
+        // Initialize only if not already initialized
+        if (!qrCodeScannerRef.current) {
+            setQrScanError(''); // Clear error on mount
+            setIsCameraStarting(true); // Reset camera starting state
 
-        // Cleanup function for component unmount
+            const scannerId = "qr-reader";
+
+            const html5QrCode = new Html5QrcodeScanner(
+                scannerId,
+                {
+                    fps: 10,
+                    qrbox: { width: 250, height: 250 },
+                    disableFlip: false,
+                    videoConstraints: {
+                        facingMode: { exact: "environment" },
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 }
+                    }
+                },
+                false
+            );
+
+            const internalOnScanSuccess = (decodedText, decodedResult) => {
+                if (qrCodeScannerRef.current && typeof qrCodeScannerRef.current.clear === 'function') {
+                    qrCodeScannerRef.current.clear()
+                        .then(() => {
+                            console.log("QR scanner cleared successfully after scan.");
+                            setQrScannerReady(false);
+                            onScanSuccess(decodedText, decodedResult);
+                        })
+                        .catch(err => {
+                            console.error("Failed to clear QR scanner after scan:", err);
+                            setQrScannerReady(false);
+                            onScanSuccess(decodedText, decodedResult);
+                        });
+                } else {
+                    console.warn("QR Scanner: clear method not available or scanner not initialized on success. Proceeding anyway.");
+                    setQrScannerReady(false);
+                    onScanSuccess(decodedText, decodedResult);
+                }
+            };
+
+            const internalOnScanError = (errorMessage) => {
+                setIsCameraStarting(false);
+                onScanError(errorMessage);
+            };
+
+            html5QrCode.render(internalOnScanSuccess, internalOnScanError)
+                .then(() => {
+                    setIsCameraStarting(false);
+                    setQrScannerReady(true);
+                    console.log("QR Scanner: Camera started successfully.");
+                })
+                .catch(err => {
+                    console.error("QR Scanner: Initial render failed:", err);
+                    setIsCameraStarting(false);
+                    setQrScannerReady(false);
+                    onScanError(err.name || err.message || "Failed to start camera during render.");
+                });
+
+            qrCodeScannerRef.current = html5QrCode;
+        }
+
+        // Cleanup function for component unmount or when it becomes invisible
         return () => {
-            if (qrCodeScannerRef.current) {
+            if (qrCodeScannerRef.current && typeof qrCodeScannerRef.current.clear === 'function') {
                 qrCodeScannerRef.current.clear()
-                    .then(() => {
-                        console.log("QR scanner cleared successfully on unmount.");
-                        qrCodeScannerRef.current = null;
-                        setQrScannerReady(false);
-                    })
-                    .catch(err => {
-                        console.error("Failed to clear QR scanner on unmount:", err);
-                        qrCodeScannerRef.current = null;
-                        setQrScannerReady(false);
-                    });
+                    .then(() => console.log("QR scanner cleared successfully on unmount/visibility change."))
+                    .catch(err => console.error("Failed to clear QR scanner on unmount/visibility change:", err));
+                qrCodeScannerRef.current = null;
+                setQrScannerReady(false);
             }
         };
-    }, [onScanSuccess, onScanError, setQrScannerReady, setQrScanError]); // Dependencies for useEffect
+    }, [isVisible, onScanSuccess, onScanError, setQrScannerReady, setQrScanError]); // Re-run effect when visibility changes
 
     return (
-        <div id="qr-reader" className="w-full max-w-xs sm:max-w-sm lg:max-w-md aspect-square bg-gray-100 rounded-xl overflow-hidden shadow-inner flex flex-col items-center justify-center relative">
-            <Spinner message="Initializing Camera..." isVisible={!qrScannerReady} />
+        <div id="qr-reader" className={`w-full max-w-xs sm:max-w-sm lg:max-w-md aspect-square bg-gray-100 rounded-xl overflow-hidden shadow-inner flex flex-col items-center justify-center relative ${!isVisible ? 'hidden' : ''}`}>
+            <Spinner message="Initializing Camera..." isVisible={isCameraStarting} />
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <div className="w-3/4 h-3/4 border-4 border-dashed border-blue-400 rounded-lg opacity-70 animate-pulse"></div>
             </div>
-            {!qrScannerReady && !qrScanError && (
+            {!isCameraStarting && !qrScannerReady && !qrScanError && (
                 <div className="flex flex-col items-center text-gray-500 text-center p-4">
                     <Camera size={48} className="mb-3 text-gray-400" />
                     <p className="text-sm font-medium mb-2">Request Camera Permissions</p>
@@ -130,10 +159,10 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
     const [ipStatus, setIpStatus] = useState({ status: 'idle', message: '' });
     const [attendanceStatus, setAttendanceStatus] = useState({ status: 'idle', message: '' });
     const [overallLoading, setOverallLoading] = useState(false);
-    const [qrScannerReady, setQrScannerReady] = useState(false); // Managed by QrScannerComponent
+    const [qrScannerReady, setQrScannerReady] = useState(false); // Passed to QrScannerComponent
     const [sessionDetails, setSessionDetails] = useState(null);
     const [currentGeolocation, setCurrentGeolocation] = useState(null);
-    const [qrScanError, setQrScanError] = useState(''); // Managed by QrScannerComponent
+    const [qrScanError, setQrScanError] = useState(''); // Passed to QrScannerComponent
 
     const videoRef = useRef();
     const canvasRef = useRef();
