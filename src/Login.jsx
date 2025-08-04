@@ -1,128 +1,82 @@
-import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import Lottie from 'lottie-react';
-import loginAnimation from './assets/login success.json';
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
-import { useFirebase } from './FirebaseContext';
-import Spinner from "./Spinner";
+// src/Login.jsx
+import React, { useState } from 'react';
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { auth } from './firebase';
+import { useNavigate, Link } from 'react-router-dom';
+import Spinner from './Spinner'; // Ensure you have a Spinner component
 
-export default function Login({ addNotification }) {
+const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
-  const { auth, db } = useFirebase();
 
   const handleLogin = async (e) => {
     e.preventDefault();
+    if (!email || !password) {
+      setError('Please enter both email and password.');
+      return;
+    }
     setLoading(true);
+    setError('');
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
-      console.log("Login.jsx: User logged in, UID:", user.uid); // Log UID
-
-      // Fetch user role from Firestore
-      const appId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
-      const userDocRef = doc(db, `artifacts/${appId}/users/${user.uid}/profile`, 'userProfile');
-      const userDocSnap = await getDoc(userDocRef);
-
-      let role = 'student'; // Default role
-      if (userDocSnap.exists()) {
-        role = userDocSnap.data().role;
-        console.log("Login.jsx: Fetched role from Firestore for redirect:", role); // Log fetched role
-      } else {
-        console.log("Login.jsx: User profile NOT found in Firestore after login. Defaulting role to student."); // Log if profile missing
-      }
-
-      addNotification('Login successful!', 'success');
-
-      // Redirect based on role to the specific dashboard default route
-      switch (role) {
-        case 'admin':
-          navigate('/admin/dashboard'); // Redirect directly to admin dashboard overview
-          break;
-        case 'teacher':
-          navigate('/teacher/dashboard'); // Redirect directly to teacher dashboard overview
-          break;
-        case 'student':
-        default:
-          navigate('/student/dashboard'); // Redirect directly to student dashboard overview
-          break;
-      }
-    } catch (error) {
-      console.error("Login error:", error);
-      let errorMessage = "Failed to login. Please check your credentials.";
-      if (error.code === 'auth/invalid-email' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
-        errorMessage = "Invalid email or password.";
-      } else if (error.code === 'auth/too-many-requests') {
-        errorMessage = "Too many failed login attempts. Please try again later.";
-      }
-      addNotification(errorMessage, 'error');
+      await signInWithEmailAndPassword(auth, email, password);
+      navigate('/dashboard'); // Redirect to a central dashboard route
+    } catch (err) {
+      setError('Failed to login. Please check your credentials.');
+      console.error('Login Error:', err);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-r from-blue-100 via-purple-100 to-pink-100 px-4 font-inter">
-      <div className="bg-white shadow-2xl rounded-2xl flex flex-col md:flex-row w-full max-w-4xl overflow-hidden">
-
-        {/* Left Side */}
-        <div className="hidden md:flex md:w-1/2 bg-blue-50 items-center justify-center p-8">
-          <Lottie
-            animationData={loginAnimation}
-            loop={true}
-            autoplay={true}
-            style={{ height: 300, width: 300 }}
-          />
+    <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-4">
+      <div className="w-full max-w-md">
+        <div className="text-center mb-8">
+            <h1 className="text-4xl font-bold text-blue-600">PresenSync</h1>
+            <p className="text-gray-500">Welcome back! Please login to your account.</p>
         </div>
-
-        {/* Right Side */}
-        <div className="w-full md:w-1/2 p-10">
-          <h2 className="text-3xl font-bold text-center mb-6 text-gray-800">Welcome Back!</h2>
-          <form className="space-y-5" onSubmit={handleLogin}>
-            <div>
-              <label htmlFor="email" className="block text-sm font-semibold mb-1">Email</label>
-              <input
-                type="email"
-                id="email"
-                placeholder="Enter your email"
-                className="w-full px-4 py-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-400 focus:outline-none transition"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
+        <div className="bg-white p-8 rounded-xl shadow-lg">
+          <h2 className="text-2xl font-bold text-center text-gray-800 mb-6">Login</h2>
+          {error && <p className="bg-red-100 text-red-700 p-3 rounded-md mb-4 text-center">{error}</p>}
+          <form onSubmit={handleLogin}>
+            <div className="mb-4">
+                <label className="block text-gray-700 font-semibold mb-2" htmlFor="email">Email Address</label>
+                <input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    required
+                    className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
             </div>
-            <div>
-              <label htmlFor="password" className="block text-sm font-semibold mb-1">Password</label>
-              <input
-                type="password"
-                id="password"
-                placeholder="Enter your password"
-                className="w-full px-4 py-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-400 focus:outline-none transition"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
+            <div className="mb-6">
+                <label className="block text-gray-700 font-semibold mb-2" htmlFor="password">Password</label>
+                <input
+                    id="password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    required
+                    className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
             </div>
-            <div className="text-right">
-              <a href="#" className="text-sm text-blue-600 hover:underline">Forgot password?</a>
-            </div>
-            <button
-              type="submit"
-              className="w-full bg-blue-600 text-white py-3 rounded-md font-semibold hover:bg-blue-700 transition relative"
-              disabled={loading}
-            >
-              <Spinner size="small" color="white" isVisible={loading} />
-              <span className={loading ? 'opacity-0' : ''}>Login</span>
+            <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition disabled:bg-blue-400 flex items-center justify-center">
+              {loading ? <Spinner /> : 'Login'}
             </button>
           </form>
-          <p className="text-center text-sm text-gray-500 mt-6">
-            Don't have an account? <a href="/signup" className="text-blue-600 hover:underline">Sign Up</a>
+          <p className="text-center mt-6 text-gray-600">
+            Don't have an account? <Link to="/signup" className="text-blue-600 font-semibold hover:underline">Sign Up</Link>
           </p>
         </div>
       </div>
     </div>
   );
-}
+};
+
+export default Login;
