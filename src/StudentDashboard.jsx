@@ -4,7 +4,6 @@ import { doc, getDoc } from "firebase/firestore";
 import { signOut } from "firebase/auth";
 import { useFirebase } from './FirebaseContext';
 
-import ProfileSettingsModal from "./ProfileSettingsModal";
 import StudentDashboardHome from "./StudentDashboardHome";
 import StudentProfile from "./StudentProfile";
 import StudentNotifications from "./StudentNotifications";
@@ -99,7 +98,7 @@ function StudentDashboard() {
 
   return (
     <div className="min-h-screen w-screen bg-gray-100 font-sans flex items-center justify-center p-4 md:p-8 overflow-hidden">
-      <div className="w-full max-w-8xl h-[calc(100vh-64px)] rounded-3xl shadow-2xl grid grid-cols-1 md:grid-cols-5 bg-white overflow-hidden">
+      <div className="w-full max-w-8xl h-[calc(100vh-64px)] rounded-3xl shadow-2xl grid grid-cols-1 md:grid-cols-[256px_1fr] bg-white overflow-hidden">
         {/* Sidebar is now always rendered, its visibility controlled by Sidebar component's internal logic */}
         <Sidebar
           activeTab={activeTab}
@@ -111,8 +110,8 @@ function StudentDashboard() {
           setIsSidebarOpen={setIsSidebarOpen}
         />
 
-        {/* Main content area takes full width on mobile, and 4/5 on desktop */}
-        <div className="col-span-full md:col-span-4 flex flex-col h-full rounded-tr-3xl rounded-br-3xl overflow-hidden">
+        {/* Main content area takes remaining width on desktop */}
+        <div className="col-span-full md:col-span-auto flex flex-col h-full rounded-tr-3xl rounded-br-3xl overflow-hidden">
           <Header
             notifications={notifications}
             userProfile={studentProfile}
