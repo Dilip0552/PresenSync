@@ -1,863 +1,338 @@
+// src/StudentDashboardHome.jsx
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Html5QrcodeScanner } from 'html5-qrcode';
-import * as faceapi from 'face-api.js';
-import { CheckCircle, XCircle, MapPin, QrCode, Scan, UserCheck, Wifi } from 'lucide-react';
-import Spinner from './Spinner';
-import NotificationSystem from './NotificationSystem';
 import { useFirebase } from './FirebaseContext';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { db, faceapi } from './firebase'; // Use our central firebase export
+import { CheckCircle, MapPin, QrCode, UserCheck, Scan } from 'lucide-react';
+import Spinner from './Spinner';
 
-// --- Backend API Base URL ---
-const API_BASE_URL = 'https://presensync.onrender.com'; // Ensure this matches your FastAPI server URL
-
-// Constants for attendance logic (some moved to backend for consistency)
-const QR_EXPIRATION_TIME_MS = 5 * 60 * 1000; // 5 minutes in milliseconds (for initial QR validation)
-const GPS_RADIUS_METERS = 100; // 100 meters radius for location check (used for frontend display, backend validates)
-const FACE_MATCH_THRESHOLD = 0.6; // Lower value means stricter match
-const BLINK_THRESHOLD = 0.4; // Threshold for eye closure to detect blink
-const HEAD_TURN_THRESHOLD = 0.1; // Threshold for head turn detection
-
-const MOCK_ALLOWED_IPS = ['192.168.1.1', '10.0.0.1', '203.0.113.45']; // Example allowed IPs (frontend check, backend can re-verify)
-
-// Helper function to calculate Haversine distance between two points
+// Helper function to calculate distance
 function haversineDistance(lat1, lon1, lat2, lon2) {
     const R = 6371e3; // metres
-    const φ1 = lat1 * Math.PI / 180; // φ, λ in radians
+    const φ1 = lat1 * Math.PI / 180;
     const φ2 = lat2 * Math.PI / 180;
     const Δφ = (lat2 - lat1) * Math.PI / 180;
     const Δλ = (lon2 - lon1) * Math.PI / 180;
-
-    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-        Math.cos(φ1) * Math.cos(φ2) *
-        Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-    const d = R * c; // in metres
-    return d;
+    return R * c;
 }
 
-const StudentDashboardHome = ({ addNotification, studentProfile }) => {
-    const [currentStep, setCurrentStep] = useState(0); // 0: QR, 1: Face, 2: GPS, 3: IP, 4: Submit, 5: Done
-    const [qrScanResult, setQrScanResult] = useState(null); // Stores { sessionId, timestamp, classId, className, teacherId, classroomLat, classroomLon }
-    const [faceRecognitionStatus, setFaceRecognitionStatus] = useState({ status: 'idle', message: '' });
-    const [locationStatus, setLocationStatus] = useState({ status: 'idle', message: '' });
-    const [ipStatus, setIpStatus] = useState({ status: 'idle', message: '' });
-    const [attendanceStatus, setAttendanceStatus] = useState({ status: 'idle', message: '' });
-    const [overallLoading, setOverallLoading] = useState(false); // Overall loading for the entire component
-    const [qrScannerReady, setQrScannerReady] = useState(false);
-    const [sessionDetails, setSessionDetails] = useState(null); // Full session details from Firestore (fetched after QR scan)
-    const [currentGeolocation, setCurrentGeolocation] = useState(null); // Store actual student geolocation
-    const [qrScanError, setQrScanError] = useState(''); // New state for QR scan specific error messages
+const StudentDashboardHome = () => {
+    const { user, userData, modelsLoaded } = useFirebase();
+    const [step, setStep] = useState(0); // 0: QR, 1: Face, 2: GPS, 3: Submit, 4: Done
+    const [sessionData, setSessionData] = useState(null);
+    const [status, setStatus] = useState({ qr: 'pending', face: 'pending', gps: 'pending', submit: 'pending' });
+    const [statusMessage, setStatusMessage] = useState('Waiting to scan QR code...');
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState('');
 
     const videoRef = useRef();
-    const canvasRef = useRef();
-    const faceMatcherRef = useRef(null);
-    const livenessBlinkCountRef = useRef(0);
-    const livenessHeadTurnCountRef = useRef(0);
-    const lastBlinkTimeRef = useRef(0);
-    const lastHeadTurnTimeRef = useRef(0);
-    const prevFaceDetectionRef = useRef(null);
-    const qrCodeScannerRef = useRef(null);
-    const mediaStreamRef = useRef(null); // To store camera stream for cleanup
-    const detectionIntervalRef = useRef(null); // Ref for the face detection interval
-    const isModelsReadyRef = useRef(false); // Ref to track actual model readiness
+    const scannerRef = useRef(null); // Ref to hold the scanner instance
 
-    const { db, userId, idToken } = useFirebase(); // Get idToken
-    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    const resetState = () => {
+        setStep(0);
+        setSessionData(null);
+        setStatus({ qr: 'pending', face: 'pending', gps: 'pending', submit: 'pending' });
+        setStatusMessage('Waiting to scan QR code...');
+        setIsLoading(false);
+        setError('');
+    };
 
-    // Step definitions for progress tracker
-    const steps = [
-        { name: 'Scan QR Code', icon: QrCode, status: qrScanResult ? 'completed' : 'pending' },
-        { name: 'Face Authentication', icon: UserCheck, status: faceRecognitionStatus.status === 'success' ? 'completed' : faceRecognitionStatus.status === 'failed' ? 'failed' : 'pending' },
-        { name: 'Location Check', icon: MapPin, status: locationStatus.status === 'success' ? 'completed' : locationStatus.status === 'failed' ? 'failed' : 'pending' },
-        { name: 'IP Check (Optional)', icon: Wifi, status: ipStatus.status === 'success' ? 'completed' : ipStatus.status === 'failed' ? 'failed' : 'pending' },
-        { name: 'Submit Attendance', icon: Scan, status: attendanceStatus.status === 'success' ? 'completed' : attendanceStatus.status === 'failed' ? 'failed' : 'pending' },
-    ];
-
-    // --- QR Code Scanning Logic ---
+    // --- QR Code Scanning ---
     useEffect(() => {
-        let scannerInstance = null;
+        // Only initialize scanner if we are on the QR step
+        if (step !== 0) return;
 
-        if (currentStep === 0) {
-            if (!qrCodeScannerRef.current) {
-                setQrScanError('');
-                scannerInstance = new Html5QrcodeScanner(
-                    "qr-reader",
-                    {
-                        fps: 10,
-                        qrbox: { width: 250, height: 250 },
-                        disableFlip: false,
-                        videoConstraints: {
-                            facingMode: { exact: "environment" },
-                            width: { ideal: 1920 },
-                            height: { ideal: 1080 }
-                        }
-                    },
-                    false
-                );
+        // Ensure the container exists
+        const qrReaderElement = document.getElementById('qr-reader');
+        if (!qrReaderElement) return;
 
-                const onScanSuccess = async (decodedText, decodedResult) => {
-                    if (qrCodeScannerRef.current) {
-                        await qrCodeScannerRef.current.clear().catch(err => console.error("Failed to clear scanner on success:", err));
-                        qrCodeScannerRef.current = null;
-                    }
-                    setOverallLoading(true);
-                    setQrScanError('');
-                    try {
-                        const qrData = JSON.parse(decodedText);
-                        const { sessionId, timestamp, classId, teacherId, classroomLat, classroomLon } = qrData;
+        // FIX: Initialize the scanner and store its instance in a ref
+        const scanner = new Html5QrcodeScanner(
+            'qr-reader',
+            { fps: 10, qrbox: { width: 250, height: 250 } },
+            false // verbose = false
+        );
 
-                        if (!sessionId || !timestamp || !classId || !teacherId) {
-                            addNotification('Invalid QR Code data structure!', 'error');
-                            setQrScanError('Invalid QR data. Please try again.');
-                            setQrScanResult(null);
-                            if (!qrCodeScannerRef.current) {
-                                scannerInstance = new Html5QrcodeScanner("qr-reader", { fps: 10, qrbox: { width: 250, height: 250 } }, false);
-                                scannerInstance.render(onScanSuccess, onScanError);
-                                qrCodeScannerRef.current = scannerInstance;
-                            }
-                            return;
-                        }
+        const onScanSuccess = async (decodedText) => {
+            setIsLoading(true);
+            setStatusMessage('QR Code scanned. Verifying session...');
+            setError('');
 
-                        const sessionDocRef = doc(db, `artifacts/${appId}/users/${teacherId}/sessions`, sessionId);
-                        const sessionSnap = await getDoc(sessionDocRef);
-
-                        if (!sessionSnap.exists()) {
-                            addNotification('Session not found or invalid QR code!', 'error');
-                            setQrScanError('Session not active or invalid QR.');
-                            setQrScanResult(null);
-                            if (!qrCodeScannerRef.current) {
-                                scannerInstance = new Html5QrcodeScanner("qr-reader", { fps: 10, qrbox: { width: 250, height: 250 } }, false);
-                                scannerInstance.render(onScanSuccess, onScanError);
-                                qrCodeScannerRef.current = scannerInstance;
-                            }
-                            return;
-                        }
-
-                        const sessionFirestoreData = sessionSnap.data();
-                        setSessionDetails(sessionFirestoreData);
-
-                        const sessionStartTime = new Date(sessionFirestoreData.startTime).getTime();
-                        const sessionDurationMs = (sessionFirestoreData.durationUnit === 'min' ? sessionFirestoreData.duration : sessionFirestoreData.duration * 60) * 60 * 1000;
-                        const sessionEndTime = sessionStartTime + sessionDurationMs;
-                        const currentTime = Date.now();
-
-                        if (currentTime < sessionStartTime) {
-                            addNotification('Session has not started yet!', 'error');
-                            setQrScanError('Session not started yet.');
-                            setQrScanResult(null);
-                            if (!qrCodeScannerRef.current) {
-                                scannerInstance = new Html5QrcodeScanner("qr-reader", { fps: 10, qrbox: { width: 250, height: 250 } }, false);
-                                scannerInstance.render(onScanSuccess, onScanError);
-                                qrCodeScannerRef.current = scannerInstance;
-                            }
-                            return;
-                        }
-
-                        if (currentTime > sessionEndTime || sessionFirestoreData.status === 'ended') {
-                            addNotification('Session has ended or QR Code expired!', 'error');
-                            setQrScanError('Session ended or QR expired.');
-                            setQrScanResult(null);
-                            if (!qrCodeScannerRef.current) {
-                                scannerInstance = new Html5QrcodeScanner("qr-reader", { fps: 10, qrbox: { width: 250, height: 250 } }, false);
-                                scannerInstance.render(onScanSuccess, onScanError);
-                                qrCodeScannerRef.current = scannerInstance;
-                            }
-                            return;
-                        }
-
-                        setQrScanResult(qrData);
-                        addNotification('QR Code scanned successfully!', 'success');
-                        setCurrentStep(1);
-
-                    } catch (error) {
-                        console.error("Error processing QR code:", error);
-                        addNotification('Invalid QR Code format or network error!', 'error');
-                        setQrScanError('Scan failed. Invalid QR or network issue.');
-                        setQrScanResult(null);
-                        if (!qrCodeScannerRef.current) {
-                            scannerInstance = new Html5QrcodeScanner("qr-reader", { fps: 10, qrbox: { width: 250, height: 250 } }, false);
-                            scannerInstance.render(onScanSuccess, onScanError);
-                            qrCodeScannerRef.current = scannerInstance;
-                        }
-                    } finally {
-                        setOverallLoading(false);
-                    }
-                };
-
-                const onScanError = (errorMessage) => {
-                    if (errorMessage.includes("NotAllowedError") || errorMessage.includes("Permission denied")) {
-                        setQrScanError("Camera access denied. Please allow permissions.");
-                        addNotification("Camera access denied. Please allow camera permissions.", "error");
-                    } else if (errorMessage.includes("NotFoundError")) {
-                        setQrScanError("No camera found. Please ensure a camera is connected.");
-                        addNotification("No camera found. Please ensure a camera is connected.", "error");
-                    } else if (errorMessage.includes("OverconstrainedError")) {
-                        setQrScanError("Camera resolution not supported. Trying default.");
-                        addNotification("Camera resolution/constraints not supported. Trying default.", "warning");
-                    } else if (errorMessage.includes("Failed to start camera")) {
-                        setQrScanError("Failed to start camera. Check if it's in use by another app.");
-                        addNotification("Failed to start camera. Is it in use by another app?", "error");
-                    } else if (errorMessage.includes("QR code not found")) {
-                         setQrScanError("No QR code detected. Please align the QR code clearly.");
-                    } else {
-                         setQrScanError("Scanning error. Please check camera feed.");
-                    }
-                };
-
-                scannerInstance.render(onScanSuccess, onScanError);
-                qrCodeScannerRef.current = scannerInstance;
-                setQrScannerReady(true);
+            // FIX: Stop the scanner correctly before proceeding
+            if (scannerRef.current) {
+                try {
+                    await scannerRef.current.clear();
+                    scannerRef.current = null;
+                } catch (e) {
+                    console.error("Failed to clear scanner on success:", e);
+                }
             }
-        } else {
-            if (qrCodeScannerRef.current) {
-                qrCodeScannerRef.current.clear()
-                    .then(() => {
-                        console.log("QR scanner cleared successfully on step change.");
-                        qrCodeScannerRef.current = null;
-                        setQrScannerReady(false);
-                        setQrScanError('');
-                    })
-                    .catch(err => {
-                        console.error("Failed to clear QR scanner on step change:", err);
-                        qrCodeScannerRef.current = null;
-                        setQrScannerReady(false);
-                        setQrScanError('Failed to stop scanner.');
-                    });
-            }
-        }
+            
+            try {
+                const qrData = JSON.parse(decodedText);
+                if (!qrData.sessionId || !qrData.teacherId) {
+                    throw new Error("Invalid QR code data.");
+                }
 
-        return () => {
-            if (qrCodeScannerRef.current) {
-                qrCodeScannerRef.current.clear().catch(err => console.error("Failed to clear QR scanner on unmount", err));
-                qrCodeScannerRef.current = null;
+                // FIX: Removed backend API call, now using Firebase directly.
+                const sessionDocRef = doc(db, 'sessions', qrData.sessionId);
+                const sessionSnap = await getDoc(sessionDocRef);
+
+                if (!sessionSnap.exists() || !sessionSnap.data().active) {
+                    throw new Error("Session is not active or does not exist.");
+                }
+
+                setSessionData({ id: sessionSnap.id, ...sessionSnap.data() });
+                setStatus(prev => ({ ...prev, qr: 'completed' }));
+                setStatusMessage('Session verified. Proceeding to face recognition...');
+                setStep(1);
+
+            } catch (err) {
+                console.error("Error processing QR code:", err);
+                setError(err.message || 'Invalid QR Code. Please try again.');
+                resetState(); // Reset to allow re-scanning
+            } finally {
+                setIsLoading(false);
             }
         };
-    }, [currentStep, addNotification, db, appId]);
 
-    // --- Face Recognition Logic ---
+        const onScanFailure = (err) => {
+            // This callback is often noisy, so we can choose to ignore most errors
+            // console.warn(`QR scan failure: ${err}`);
+        };
 
-    const startCamera = useCallback(async () => {
-        setFaceRecognitionStatus(prev => ({ ...prev, status: 'loading', message: 'Starting camera...' }));
+        // Store the instance and start scanning
+        scannerRef.current = scanner;
+        scanner.render(onScanSuccess, onScanFailure);
+
+        // FIX: Cleanup function to ensure scanner is stopped on unmount
+        return () => {
+            if (scannerRef.current) {
+                scannerRef.current.clear().catch(e => console.error("Cleanup failed:", e));
+                scannerRef.current = null;
+            }
+        };
+    }, [step]); // Rerun this effect only when the 'step' changes
+
+    // --- Face Recognition ---
+    const handleFaceRecognition = useCallback(async () => {
+        if (!modelsLoaded || !videoRef.current) return;
+
+        setIsLoading(true);
+        setStatusMessage('Starting camera for face verification...');
+        setError('');
+
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 } } });
+            const stream = await navigator.mediaDevices.getUserMedia({ video: {} });
             videoRef.current.srcObject = stream;
-            mediaStreamRef.current = stream;
-            videoRef.current.play();
-            setFaceRecognitionStatus(prev => ({ ...prev, status: 'pending', message: 'Camera started. Please align your face.' }));
+
+            await new Promise(resolve => videoRef.current.onloadedmetadata = resolve);
+
+            setStatusMessage('Please look at the camera...');
+            const detection = await faceapi.detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+
+            // Stop camera tracks immediately after detection
+            stream.getTracks().forEach(track => track.stop());
+
+            if (!detection) {
+                throw new Error("No face detected. Please try again in a well-lit area.");
+            }
+
+            if (!userData?.faceDescriptor) {
+                throw new Error("Your face profile is not set up. Please contact support.");
+            }
+
+            const registeredDescriptor = new Float32Array(userData.faceDescriptor);
+            const faceMatcher = new faceapi.FaceMatcher([new faceapi.LabeledFaceDescriptors('user', [registeredDescriptor])]);
+            const bestMatch = faceMatcher.findBestMatch(detection.descriptor);
+
+            if (bestMatch.label === 'user' && bestMatch.distance < 0.5) {
+                setStatus(prev => ({ ...prev, face: 'completed' }));
+                setStatusMessage('Face verified. Checking location...');
+                setStep(2);
+            } else {
+                throw new Error("Face not recognized. Please try again.");
+            }
         } catch (err) {
-            console.error("Error accessing camera:", err);
-            addNotification('Failed to access camera. Please allow camera permissions.', 'error');
-            setFaceRecognitionStatus(prev => ({ ...prev, status: 'failed', message: 'Camera access denied.' }));
-            throw err;
+            setError(err.message);
+            setStatus(prev => ({ ...prev, face: 'failed' }));
+            setStatusMessage('Face verification failed. Please try again.');
+        } finally {
+            setIsLoading(false);
         }
-    }, [addNotification]);
+    }, [modelsLoaded, userData]);
 
-    const stopCamera = useCallback(() => {
-        if (mediaStreamRef.current) {
-            mediaStreamRef.current.getTracks().forEach(track => track.stop());
-            mediaStreamRef.current = null;
-            if (videoRef.current) {
-                videoRef.current.srcObject = null;
-            }
-            if (canvasRef.current) {
-                const context = canvasRef.current.getContext('2d');
-                context.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-            }
+    useEffect(() => {
+        if (step === 1) {
+            handleFaceRecognition();
         }
-    }, []);
+    }, [step, handleFaceRecognition]);
 
-    const detectFaceAndLiveness = useCallback(async () => {
-        if (!isModelsReadyRef.current || !videoRef.current || videoRef.current.paused || videoRef.current.ended || !faceMatcherRef.current) {
+    // --- GPS Location Check ---
+    const handleLocationCheck = useCallback(() => {
+        setIsLoading(true);
+        setStatusMessage('Getting your location...');
+        setError('');
+
+        if (!sessionData?.location) {
+            setError("Session location is missing.");
+            setIsLoading(false);
             return;
         }
 
-        const displaySize = { width: videoRef.current.videoWidth, height: videoRef.current.videoHeight };
-        if (canvasRef.current && displaySize.width > 0 && displaySize.height > 0) {
-            faceapi.matchDimensions(canvasRef.current, displaySize);
-            const context = canvasRef.current.getContext('2d');
-            context.clearRect(0, 0, displaySize.width, displaySize.height);
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const { latitude, longitude } = position.coords;
+                const distance = haversineDistance(
+                    sessionData.location.latitude,
+                    sessionData.location.longitude,
+                    latitude,
+                    longitude
+                );
 
-            const detections = await faceapi.detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions())
-                .withFaceLandmarks()
-                .withFaceDescriptor();
-
-            if (detections) {
-                const resizedDetections = faceapi.resizeResults(detections, displaySize);
-                faceapi.draw.drawDetections(canvasRef.current, resizedDetections);
-                faceapi.draw.drawFaceLandmarks(canvasRef.current, resizedDetections);
-
-                const bestMatch = faceMatcherRef.current.findBestMatch(resizedDetections.descriptor);
-
-                if (bestMatch.label === userId && bestMatch.distance < FACE_MATCH_THRESHOLD) {
-                    const landmarks = resizedDetections.landmarks;
-                    const leftEye = landmarks.getLeftEye();
-                    const rightEye = landmarks.getRightEye();
-
-                    const eyeLidsDistLeft = faceapi.euclideanDistance(leftEye[1], leftEye[5]) + faceapi.euclideanDistance(leftEye[2], leftEye[4]);
-                    const eyeBrowDistLeft = faceapi.euclideanDistance(leftEye[0], leftEye[3]);
-                    const leftEyeAspectRatio = eyeLidsDistLeft / (2 * eyeBrowDistLeft);
-
-                    const eyeLidsDistRight = faceapi.euclideanDistance(rightEye[1], rightEye[5]) + faceapi.euclideanDistance(rightEye[2], rightEye[4]);
-                    const eyeBrowDistRight = faceapi.euclideanDistance(rightEye[0], rightEye[3]);
-                    const rightEyeAspectRatio = eyeLidsDistRight / (2 * eyeBrowDistRight);
-
-                    const avgEyeAspectRatio = (leftEyeAspectRatio + rightEyeAspectRatio) / 2;
-                    const eyesClosed = avgEyeAspectRatio < BLINK_THRESHOLD;
-                    const currentTime = Date.now();
-
-                    if (eyesClosed && (currentTime - lastBlinkTimeRef.current > 1000)) {
-                        livenessBlinkCountRef.current += 1;
-                        lastBlinkTimeRef.current = currentTime;
-                        setFaceRecognitionStatus(prev => ({ ...prev, message: `Blink detected! (${livenessBlinkCountRef.current}/1)` }));
-                    }
-
-                    if (prevFaceDetectionRef.current) {
-                        const prevNoseX = prevFaceDetectionRef.current.landmarks.getNose()[3].x;
-                        const currNoseX = currDetection.landmarks.getNose()[3].x;
-                        const deltaX = Math.abs(currNoseX - prevNoseX);
-
-                        if (deltaX > HEAD_TURN_THRESHOLD * displaySize.width && (currentTime - lastHeadTurnTimeRef.current > 1000)) {
-                            livenessHeadTurnCountRef.current += 1;
-                            lastHeadTurnTimeRef.current = currentTime;
-                            setFaceRecognitionStatus(prev => ({ ...prev, message: `Head turn detected! (${livenessHeadTurnCountRef.current}/1)` }));
-                        }
-                    }
-                    prevFaceDetectionRef.current = resizedDetections;
-
-                    if (livenessBlinkCountRef.current >= 1 || livenessHeadTurnCountRef.current >= 1) {
-                        setFaceRecognitionStatus({ status: 'success', message: 'Face matched and liveness confirmed!' });
-                        addNotification('Face authentication successful!', 'success');
-                        if (detectionIntervalRef.current) {
-                            clearInterval(detectionIntervalRef.current);
-                            detectionIntervalRef.current = null;
-                        }
-                        stopCamera();
-                        setCurrentStep(2);
-                        livenessBlinkCountRef.current = 0;
-                        livenessHeadTurnCountRef.current = 0;
-                    } else {
-                        setFaceRecognitionStatus({ status: 'pending', message: 'Face matched. Please blink or slightly turn your head.' });
-                    }
-
+                if (distance <= 200) { // 200-meter radius
+                    setStatus(prev => ({ ...prev, gps: 'completed' }));
+                    setStatusMessage('Location verified. Submitting attendance...');
+                    setStep(3);
                 } else {
-                    setFaceRecognitionStatus({ status: 'failed', message: 'Face not recognized. Please try again.' });
-                    addNotification('Face not recognized. Please try again.', 'error');
+                    setError(`You are too far from the class location (${Math.round(distance)}m).`);
+                    setStatus(prev => ({ ...prev, gps: 'failed' }));
                 }
-            } else {
-                setFaceRecognitionStatus({ status: 'pending', message: 'No face detected. Please center your face.' });
-            }
-        }
-    }, [addNotification, stopCamera, userId]);
-
-    const initializeFaceRecognition = useCallback(async () => {
-        setOverallLoading(true);
-        setFaceRecognitionStatus({ status: 'loading', message: 'Loading face models...' });
-        try {
-            await faceapi.nets.tinyFaceDetector.loadFromUri('/models');
-            await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
-            await faceapi.nets.faceRecognitionNet.loadFromUri('/models');
-
-            if (!faceapi.nets.tinyFaceDetector.isLoaded || !faceapi.nets.faceLandmark68Net.isLoaded || !faceapi.nets.faceRecognitionNet.isLoaded) {
-                throw new Error("Face-API models failed to load completely. Check manifest files.");
-            }
-            isModelsReadyRef.current = true;
-
-            setFaceRecognitionStatus({ status: 'idle', message: 'Models loaded. Ready for face scan.' });
-
-            await startCamera();
-
-            detectionIntervalRef.current = setInterval(() => {
-                detectFaceAndLiveness();
-            }, 100);
-
-            setOverallLoading(false);
-        } catch (error) {
-            console.error("Error initializing face recognition:", error);
-            addNotification('Failed to initialize face recognition. Ensure models are in public/models and camera access is allowed.', 'error');
-            setFaceRecognitionStatus({ status: 'failed', message: 'Failed to initialize face recognition.' });
-            setOverallLoading(false);
-            isModelsReadyRef.current = false;
-        }
-    }, [addNotification, studentProfile, userId, startCamera, detectFaceAndLiveness]);
-
+                setIsLoading(false);
+            },
+            (err) => {
+                setError("Could not access your location. Please enable location services.");
+                setStatus(prev => ({ ...prev, gps: 'failed' }));
+                setIsLoading(false);
+            },
+            { enableHighAccuracy: true }
+        );
+    }, [sessionData]);
 
     useEffect(() => {
-        if (currentStep === 1) {
-            initializeFaceRecognition();
-
-            return () => {
-                if (detectionIntervalRef.current) {
-                    clearInterval(detectionIntervalRef.current);
-                    detectionIntervalRef.current = null;
-                }
-                stopCamera();
-                isModelsReadyRef.current = false;
-            };
+        if (step === 2) {
+            handleLocationCheck();
         }
-    }, [currentStep, initializeFaceRecognition, stopCamera]);
+    }, [step, handleLocationCheck]);
 
-
-    // --- GPS Location Check Logic ---
-    const checkGPSLocation = useCallback(() => {
-        setOverallLoading(true);
-        setLocationStatus({ status: 'loading', message: 'Checking your location...' });
-
-        if (!qrScanResult || !sessionDetails || !sessionDetails.classroomLat || !sessionDetails.classroomLon) {
-            setLocationStatus({ status: 'failed', message: 'Classroom coordinates not available from session data.' });
-            addNotification('Cannot perform location check: missing classroom coordinates.', 'error');
-            setOverallLoading(false);
+    // --- Submit Attendance ---
+    const handleSubmitAttendance = useCallback(async () => {
+        if (status.qr !== 'completed' || status.face !== 'completed' || status.gps !== 'completed') {
+            setError("Cannot submit: Not all verification steps were successful.");
             return;
         }
 
-        const CLASSROOM_LAT = sessionDetails.classroomLat;
-        const CLASSROOM_LON = sessionDetails.classroomLon;
+        setIsLoading(true);
+        setStatusMessage('Submitting your attendance...');
+        setError('');
 
-        if ("geolocation" in navigator) {
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    const studentLat = position.coords.latitude;
-                    const studentLon = position.coords.longitude;
-                    setCurrentGeolocation({ latitude: studentLat, longitude: studentLon });
-                    const distance = haversineDistance(CLASSROOM_LAT, CLASSROOM_LON, studentLat, studentLon);
-
-                    if (distance <= GPS_RADIUS_METERS) {
-                        setLocationStatus({ status: 'success', message: `Within ${Math.round(distance)}m of classroom.` });
-                        addNotification('Location check successful!', 'success');
-                        setCurrentStep(3);
-                    } else {
-                        setLocationStatus({ status: 'failed', message: `Too far from classroom (${Math.round(distance)}m).` });
-                        addNotification('You are outside the classroom range.', 'error');
-                    }
-                    setOverallLoading(false);
-                },
-                (error) => {
-                    console.error("Geolocation error:", error);
-                    setLocationStatus({ status: 'failed', message: 'Location access denied or unavailable.' });
-                    addNotification('Failed to get your location. Please enable GPS.', "error");
-                    setOverallLoading(false);
-                },
-                {
-                    enableHighAccuracy: true,
-                    timeout: 10000,
-                    maximumAge: 0
+        try {
+            const sessionDocRef = doc(db, 'sessions', sessionData.id);
+            // Atomically update the specific student's attendance in the map
+            await updateDoc(sessionDocRef, {
+                [`attendees.${user.uid}`]: {
+                    status: 'present',
+                    timestamp: new Date(),
+                    name: userData.name,
                 }
-            );
-        } else {
-            setLocationStatus({ status: 'failed', message: 'Geolocation not supported by your browser.' });
-            addNotification('Geolocation not supported.', "error");
-            setOverallLoading(false);
-        }
-    }, [addNotification, qrScanResult, sessionDetails]);
-
-    useEffect(() => {
-        if (currentStep === 2) {
-            checkGPSLocation();
-        }
-    }, [currentStep, checkGPSLocation]);
-
-    // --- Optional: Public IP Check Logic ---
-    const checkPublicIP = useCallback(async () => {
-        setOverallLoading(true);
-        setIpStatus({ status: 'loading', message: 'Checking public IP...' });
-        try {
-            const response = await fetch('https://api.ipify.org?format=json');
-            const data = await response.json();
-            const userIp = data.ip;
-
-            if (MOCK_ALLOWED_IPS.includes(userIp)) {
-                setIpStatus({ status: 'success', message: `IP matched: ${userIp}` });
-                addNotification('IP check successful!', 'success');
-                setCurrentStep(4);
-            } else {
-                setIpStatus({ status: 'failed', message: `IP not allowed: ${userIp}` });
-                addNotification('Your IP is not on the allowed list.', 'warning');
-                setCurrentStep(4);
-            }
-        } catch (error) {
-            console.error("Error fetching IP:", error);
-            setIpStatus({ status: 'failed', message: 'Failed to retrieve public IP.' });
-            addNotification('Could not check public IP.', 'warning');
-            setCurrentStep(4);
-        } finally {
-            setOverallLoading(false);
-        }
-    }, [addNotification]);
-
-    useEffect(() => {
-        if (currentStep === 3) {
-            checkPublicIP();
-        }
-    }, [currentStep, checkPublicIP]);
-
-    // --- Attendance Submission Logic (to Backend API) ---
-    const markAttendance = useCallback(async () => {
-        setOverallLoading(true);
-        setAttendanceStatus({ status: 'loading', message: 'Submitting attendance...' });
-
-        if (!qrScanResult || !sessionDetails || !userId || !idToken || !currentGeolocation || faceRecognitionStatus.status !== 'success' || locationStatus.status !== 'success') {
-            setAttendanceStatus({ status: 'failed', message: 'One or more pre-requisite checks failed. Cannot submit.' });
-            addNotification('Pre-requisite checks failed. Cannot mark attendance.', 'error');
-            setOverallLoading(false);
-            return;
-        }
-
-        console.log("StudentDashboardHome: Sending attendance data to backend:", {
-            sessionId: qrScanResult.sessionId,
-            studentId: userId,
-            timestamp: new Date().toISOString(),
-            latitude: currentGeolocation.latitude,
-            longitude: currentGeolocation.longitude,
-            faceMatchConfidence: FACE_MATCH_THRESHOLD,
-            ipAddress: ipStatus.message.includes('IP matched') ? ipStatus.message.split(': ')[1] : 'N/A',
-            classId: qrScanResult.classId,
-            className: qrScanResult.className,
-            teacherId: qrScanResult.teacherId,
-        });
-
-        try {
-            const response = await fetch(`${API_BASE_URL}/attendance/mark`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${idToken}`
-                },
-                body: JSON.stringify({
-                    sessionId: qrScanResult.sessionId,
-                    studentId: userId,
-                    timestamp: new Date().toISOString(),
-                    latitude: currentGeolocation.latitude,
-                    longitude: currentGeolocation.longitude,
-                    faceMatchConfidence: FACE_MATCH_THRESHOLD,
-                    ipAddress: ipStatus.message.includes('IP matched') ? ipStatus.message.split(': ')[1] : 'N/A',
-                    classId: qrScanResult.classId,
-                    className: qrScanResult.className,
-                    teacherId: qrScanResult.teacherId,
-                })
             });
-
-            const result = await response.json();
-            console.log("StudentDashboardHome: Backend response:", result);
-
-            if (response.ok) {
-                setAttendanceStatus({ status: 'success', message: result.message });
-                addNotification(result.message, 'success');
-                setCurrentStep(5);
-            } else {
-                setAttendanceStatus({ status: 'failed', message: result.detail || 'Failed to submit attendance.' });
-                addNotification(result.detail || 'Failed to submit attendance.', 'error');
-            }
-        } catch (error) {
-            console.error("StudentDashboardHome: Error submitting attendance to backend:", error);
-            setAttendanceStatus({ status: 'failed', message: 'Network error or unable to reach backend.' });
-            addNotification('Network error or unable to reach backend.', 'error');
+            setStatus(prev => ({ ...prev, submit: 'completed' }));
+            setStatusMessage('Attendance marked successfully!');
+            setStep(4);
+        } catch (err) {
+            console.error("Error submitting attendance:", err);
+            setError("A server error occurred while submitting. Please try again.");
+            setStatus(prev => ({ ...prev, submit: 'failed' }));
         } finally {
-            setOverallLoading(false);
+            setIsLoading(false);
         }
-    }, [addNotification, qrScanResult, sessionDetails, userId, idToken, currentGeolocation, faceRecognitionStatus.status, locationStatus.status, ipStatus.message]);
+    }, [status, sessionData, user, userData]);
 
     useEffect(() => {
-        if (currentStep === 4) {
-            markAttendance();
+        if (step === 3) {
+            handleSubmitAttendance();
         }
-    }, [currentStep, markAttendance]);
+    }, [step, handleSubmitAttendance]);
 
-    // UI for status cards
-    const StatusCard = ({ icon: Icon, title, status, message }) => {
-        let borderColor, bgColor, textColor, iconColor;
-        switch (status) {
-            case 'completed':
-            case 'success':
-                borderColor = 'border-green-500';
-                bgColor = 'bg-green-100';
-                textColor = 'text-green-800';
-                iconColor = 'text-green-500';
-                break;
-            case 'failed':
-                borderColor = 'border-red-500';
-                bgColor = 'bg-red-100';
-                textColor = 'text-red-800';
-                iconColor = 'text-red-500';
-                break;
-            case 'loading':
-                borderColor = 'border-blue-500';
-                bgColor = 'bg-blue-100';
-                textColor = 'text-blue-800';
-                iconColor = 'text-blue-500';
-                break;
-            case 'pending':
+
+    const renderStepContent = () => {
+        switch (step) {
+            case 0:
+                return (
+                    <div className="text-center">
+                        <h3 className="text-xl font-semibold mb-4">Scan Session QR Code</h3>
+                        <div id="qr-reader" className="w-full max-w-sm mx-auto aspect-square bg-gray-100 rounded-lg shadow-inner"></div>
+                    </div>
+                );
+            case 1:
+                return (
+                    <div className="text-center">
+                        <h3 className="text-xl font-semibold mb-4">Face Verification</h3>
+                        <div className="w-full max-w-sm mx-auto aspect-video bg-black rounded-lg overflow-hidden shadow-inner">
+                            <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover"></video>
+                        </div>
+                    </div>
+                );
+            case 4:
+                return (
+                    <div className="text-center">
+                        <CheckCircle className="w-24 h-24 text-green-500 mx-auto mb-4" />
+                        <h3 className="text-2xl font-bold text-gray-800">Attendance Marked!</h3>
+                        <p className="text-gray-600 mt-2">You have been successfully marked as present.</p>
+                        <button onClick={resetState} className="mt-6 bg-blue-600 text-white font-semibold px-6 py-2 rounded-lg hover:bg-blue-700">
+                            Mark Another
+                        </button>
+                    </div>
+                );
             default:
-                borderColor = 'border-gray-300';
-                bgColor = 'bg-gray-50';
-                textColor = 'text-gray-600';
-                iconColor = 'text-gray-400';
-                break;
+                return (
+                    <div className="text-center">
+                        <Spinner />
+                    </div>
+                );
         }
-
-        return (
-            <motion.div
-                className={`flex items-center p-4 rounded-xl shadow-md ${bgColor} ${borderColor} border-l-4 mb-3`}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3 }}
-            >
-                <div className={`mr-4 p-2 rounded-full ${iconColor} bg-white bg-opacity-70 shadow-sm`}>
-                    <Icon size={24} />
-                </div>
-                <div>
-                    <h3 className={`font-semibold ${textColor}`}>{title}</h3>
-                    <p className={`text-sm ${textColor}`}>{message}</p>
-                </div>
-            </motion.div>
-        );
     };
-
-    // UI for progress bar
-    const ProgressBar = ({ steps, currentStep }) => {
-        return (
-            <div className="flex justify-between items-center w-full mb-8">
-                {/* Adjusted for mobile: flex-wrap, smaller icons/text on extra small screens */}
-                <div className="flex flex-wrap justify-between items-center w-full sm:flex-nowrap">
-                    {steps.map((step, index) => (
-                        <React.Fragment key={step.name}>
-                            <div className="flex flex-col items-center flex-1 min-w-[80px] sm:min-w-0 px-1"> {/* min-w for mobile wrapping */}
-                                <motion.div
-                                    className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center transition-all duration-300 ${
-                                        index <= currentStep ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-500'
-                                    }`}
-                                    initial={{ scale: 0.8 }}
-                                    animate={{ scale: index === currentStep ? 1.1 : 1 }}
-                                    transition={{ type: "spring", stiffness: 500, damping: 30 }}
-                                >
-                                    <step.icon size={16} className="sm:size-[20px]" /> {/* Smaller icon on mobile */}
-                                </motion.div>
-                                <p className={`text-xs mt-1 text-center ${index <= currentStep ? 'text-indigo-700 font-medium' : 'text-gray-500'} hidden sm:block`}> {/* Hide text on very small screens */}
-                                    {step.name}
-                                </p>
-                            </div>
-                            {index < steps.length - 1 && (
-                                <div className="flex-1 h-1 bg-gray-200 mx-1 sm:mx-2 relative hidden sm:block"> {/* Hide connector on very small screens */}
-                                    <motion.div
-                                        className="absolute inset-y-0 left-0 bg-indigo-600 rounded-full"
-                                        initial={{ width: 0 }}
-                                        animate={{ width: index < currentStep ? '100%' : '0%' }}
-                                        transition={{ duration: 0.5, ease: "easeInOut" }}
-                                    />
-                                </div>
-                            )}
-                        </React.Fragment>
-                    ))}
-                </div>
-            </div>
-        );
-    };
-
 
     return (
-        <div className="min-h-full bg-gradient-to-br from-indigo-50 to-purple-100 flex items-center justify-center p-4 font-inter">
-            <div className="bg-white rounded-3xl shadow-2xl p-4 sm:p-8 w-full max-w-4xl transform transition-all duration-500 ease-in-out scale-95 md:scale-100 relative"> {/* Adjusted padding */}
-                <h2 className="text-2xl sm:text-3xl font-bold text-center text-indigo-800 mb-6 sm:mb-8">Mark Your Attendance</h2> {/* Adjusted font size */}
+        <div className="bg-white rounded-lg shadow-xl p-8 w-full max-w-2xl mx-auto">
+            <h2 className="text-3xl font-bold text-center text-gray-800 mb-6">Mark Attendance</h2>
+            
+            <div className="mb-6 space-y-3">
+                <StatusItem icon={QrCode} text="Scan QR Code" status={status.qr} />
+                <StatusItem icon={UserCheck} text="Verify Face" status={status.face} />
+                <StatusItem icon={MapPin} text="Verify Location" status={status.gps} />
+                <StatusItem icon={Scan} text="Submit Record" status={status.submit} />
+            </div>
 
-                <ProgressBar steps={steps} currentStep={currentStep} />
+            <div className="p-6 bg-gray-50 rounded-lg min-h-[300px] flex flex-col items-center justify-center">
+                {error && <p className="text-red-600 mb-4 font-semibold">{error}</p>}
+                <p className="text-blue-600 mb-4 font-medium h-6">{!error && statusMessage}</p>
+                {renderStepContent()}
+            </div>
+        </div>
+    );
+};
 
-                {/* Overall Loading Spinner as an overlay */}
-                <AnimatePresence>
-                    {overallLoading && (
-                        <motion.div
-                            key="overall-spinner-overlay"
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            transition={{ duration: 0.3 }}
-                            className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center z-40 rounded-3xl"
-                        >
-                            <Spinner message="Processing..." size="large" isVisible={true} />
-                        </motion.div>
-                    )}
-                </AnimatePresence>
+const StatusItem = ({ icon: Icon, text, status }) => {
+    const statusStyles = {
+        pending: { bg: 'bg-gray-100', text: 'text-gray-500', icon: 'text-gray-400' },
+        loading: { bg: 'bg-blue-100', text: 'text-blue-700', icon: 'text-blue-500' },
+        completed: { bg: 'bg-green-100', text: 'text-green-700', icon: 'text-green-500' },
+        failed: { bg: 'bg-red-100', text: 'text-red-700', icon: 'text-red-500' },
+    };
+    const styles = statusStyles[status] || statusStyles.pending;
 
-                <AnimatePresence mode="wait">
-                    {currentStep === 0 && (
-                        <motion.div
-                            key="qr-scan"
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -20 }}
-                            transition={{ duration: 0.3 }}
-                            className="flex flex-col items-center justify-center"
-                        >
-                            <h3 className="text-xl sm:text-2xl font-semibold text-gray-700 mb-4">Step 1: Scan QR Code</h3>
-                            <p className="text-sm sm:text-base text-gray-500 mb-6 text-center">Position the QR code within the scanning area.</p>
-                            <div id="qr-reader" className="w-full max-w-xs sm:max-w-sm lg:max-w-md aspect-square bg-gray-100 rounded-xl overflow-hidden shadow-inner flex flex-col items-center justify-center relative">
-                                <Spinner message="Initializing QR Scanner..." isVisible={!qrScannerReady} />
-                                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                                    <div className="w-3/4 h-3/4 border-4 border-dashed border-blue-400 rounded-lg opacity-70 animate-pulse"></div>
-                                </div>
-                                {qrScanError && (
-                                    <p className="absolute bottom-2 left-1/2 -translate-x-1/2 text-red-500 text-xs sm:text-sm font-semibold bg-white bg-opacity-80 p-1 rounded-md z-10 text-center w-full max-w-[90%]">{qrScanError}</p>
-                                )}
-                            </div>
-                            <StatusCard
-                                icon={QrCode}
-                                title="QR Code Status"
-                                status={qrScanResult ? 'success' : 'pending'}
-                                message={qrScanResult ? `Session ID: ${qrScanResult.sessionId}` : 'Waiting for QR scan...'}
-                            />
-                        </motion.div>
-                    )}
-
-                    {currentStep === 1 && (
-                        <motion.div
-                            key="face-auth"
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -20 }}
-                            transition={{ duration: 0.3 }}
-                            className="flex flex-col items-center justify-center"
-                        >
-                            <h3 className="text-xl sm:text-2xl font-semibold text-gray-700 mb-4">Step 2: Face Authentication</h3>
-                            <p className="text-sm sm:text-base text-gray-500 mb-6 text-center">Align your face in the frame and perform the liveness action (blink or slight head turn).</p>
-                            <div className="relative w-full max-w-xs sm:max-w-sm lg:max-w-md aspect-video bg-gray-100 rounded-xl overflow-hidden shadow-inner flex items-center justify-center">
-                                <video ref={videoRef} autoPlay muted playsInline className="absolute w-full h-full object-cover rounded-xl"></video>
-                                <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full"></canvas>
-                                <div className="absolute inset-0 border-4 border-dashed border-indigo-400 rounded-xl flex items-center justify-center">
-                                    <div className="w-3/4 h-3/4 border-2 border-white border-opacity-50 rounded-full animate-pulse"></div>
-                                </div>
-                                <Spinner message={faceRecognitionStatus.message} isVisible={faceRecognitionStatus.status === 'loading'} />
-                            </div>
-                            <StatusCard
-                                icon={UserCheck}
-                                title="Face Recognition Status"
-                                status={faceRecognitionStatus.status}
-                                message={faceRecognitionStatus.message || 'Waiting for face detection...'}
-                            />
-                            {faceRecognitionStatus.status === 'failed' && (
-                                <button
-                                    onClick={() => {
-                                        setFaceRecognitionStatus({ status: 'idle', message: '' });
-                                        livenessBlinkCountRef.current = 0;
-                                        livenessHeadTurnCountRef.current = 0;
-                                        initializeFaceRecognition();
-                                    }}
-                                    className="mt-4 px-6 py-2 bg-indigo-600 text-white rounded-lg shadow-md hover:bg-indigo-700 transition-colors text-sm sm:text-base"
-                                >
-                                    Retry Face Scan
-                                </button>
-                            )}
-                        </motion.div>
-                    )}
-
-                    {currentStep === 2 && (
-                        <motion.div
-                            key="gps-check"
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -20 }}
-                            transition={{ duration: 0.3 }}
-                            className="flex flex-col items-center justify-center"
-                        >
-                            <h3 className="text-xl sm:text-2xl font-semibold text-gray-700 mb-4">Step 3: Location Check</h3>
-                            <p className="text-sm sm:text-base text-gray-500 mb-6 text-center">Verifying your proximity to the classroom.</p>
-                            <Spinner message={locationStatus.message} isVisible={locationStatus.status === 'loading'} />
-                            <StatusCard
-                                icon={MapPin}
-                                title="Location Status"
-                                status={locationStatus.status}
-                                message={locationStatus.message || 'Waiting for location data...'}
-                            />
-                            {locationStatus.status === 'failed' && (
-                                <button
-                                    onClick={checkGPSLocation}
-                                    className="mt-4 px-6 py-2 bg-indigo-600 text-white rounded-lg shadow-md hover:bg-indigo-700 transition-colors text-sm sm:text-base"
-                                >
-                                    Retry Location Check
-                                </button>
-                            )}
-                        </motion.div>
-                    )}
-
-                    {currentStep === 3 && (
-                        <motion.div
-                            key="ip-check"
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -20 }}
-                            transition={{ duration: 0.3 }}
-                            className="flex flex-col items-center justify-center"
-                        >
-                            <h3 className="text-xl sm:text-2xl font-semibold text-gray-700 mb-4">Step 4: IP Address Check (Optional)</h3>
-                            <p className="text-sm sm:text-base text-gray-500 mb-6 text-center">Verifying your network connection.</p>
-                            <Spinner message={ipStatus.message} isVisible={ipStatus.status === 'loading'} />
-                            <StatusCard
-                                icon={Wifi}
-                                title="IP Status"
-                                status={ipStatus.status}
-                                message={ipStatus.message || 'Checking IP address...'}
-                            />
-                            {ipStatus.status === 'failed' && (
-                                <button
-                                    onClick={checkPublicIP}
-                                    className="mt-4 px-6 py-2 bg-indigo-600 text-white rounded-lg shadow-md hover:bg-indigo-700 transition-colors text-sm sm:text-base"
-                                >
-                                    Retry IP Check
-                                </button>
-                            )}
-                        </motion.div>
-                    )}
-
-                    {currentStep === 4 && (
-                        <motion.div
-                            key="submit-attendance"
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -20 }}
-                            transition={{ duration: 0.3 }}
-                            className="flex flex-col items-center justify-center"
-                        >
-                            <h3 className="text-xl sm:text-2xl font-semibold text-gray-700 mb-4">Step 5: Submit Attendance</h3>
-                            <p className="text-sm sm:text-base text-gray-500 mb-6 text-center">Finalizing your attendance record.</p>
-                            <Spinner message={attendanceStatus.message} isVisible={attendanceStatus.status === 'loading'} />
-                            <StatusCard
-                                icon={Scan}
-                                title="Attendance Submission"
-                                status={attendanceStatus.status}
-                                message={attendanceStatus.message || 'Ready to submit...'}
-                            />
-                        </motion.div>
-                    )}
-
-                    {currentStep === 5 && (
-                        <motion.div
-                            key="attendance-complete"
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -20 }}
-                            transition={{ duration: 0.3 }}
-                            className="flex flex-col items-center justify-center text-center"
-                        >
-                            <CheckCircle size={64} className="text-green-500 mb-4" />
-                            <h3 className="text-2xl sm:text-3xl font-bold text-green-700 mb-2">Attendance Marked!</h3>
-                            <p className="text-base sm:text-lg text-gray-600 mb-6">Your attendance for the session has been successfully recorded.</p>
-                            <button
-                                onClick={() => {
-                                    setCurrentStep(0);
-                                    setQrScanResult(null);
-                                    setFaceRecognitionStatus({ status: 'idle', message: '' });
-                                    setLocationStatus({ status: 'idle', message: '' });
-                                    setIpStatus({ status: 'idle', message: '' });
-                                    setAttendanceStatus({ status: 'idle', message: '' });
-                                    setOverallLoading(false);
-                                    setQrScannerReady(false);
-                                    setSessionDetails(null);
-                                }}
-                                className="px-6 py-3 sm:px-8 sm:py-3 bg-indigo-600 text-white rounded-full shadow-lg hover:bg-indigo-700 transition-colors transform hover:scale-105 text-sm sm:text-base"
-                            >
-                                Mark New Attendance
-                            </button>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
+    return (
+        <div className={`flex items-center p-3 rounded-lg transition-all duration-300 ${styles.bg}`}>
+            <Icon className={`w-6 h-6 mr-4 ${styles.icon}`} />
+            <span className={`font-semibold ${styles.text}`}>{text}</span>
+            <div className="ml-auto">
+                {status === 'loading' && <Spinner />}
+                {status === 'completed' && <CheckCircle className="w-6 h-6 text-green-500" />}
             </div>
         </div>
     );
