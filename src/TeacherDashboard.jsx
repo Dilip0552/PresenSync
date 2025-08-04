@@ -23,7 +23,7 @@ function TeacherDashboard() {
   const [loadingData, setLoadingData] = useState(true);
   const [teacherProfile, setTeacherProfile] = useState(null); // This holds the user's profile data
     const [isSidebarOpen, setIsSidebarOpen] = useState(false); 
-    
+
   const navigate = useNavigate();
   const location = useLocation();
   const { db, auth, userId } = useFirebase(); // Get db, auth, userId
@@ -76,6 +76,7 @@ function TeacherDashboard() {
   useEffect(() => {
     if (db && userId) {
       setLoadingData(true);
+      console.log("TeacherDashboard: Setting up classes listener for userId:", userId, "path:", `artifacts/${appId}/users/${userId}/classes`);
       console.log("TeacherDashboard: Fetching classes for userId:", userId);
       const classesCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/classes`);
       const q = query(classesCollectionRef);
@@ -101,6 +102,7 @@ function TeacherDashboard() {
   useEffect(() => {
     if (db && userId) {
       setLoadingData(true);
+      console.log("TeacherDashboard: Setting up sessions listener for userId:", userId, "path:", `artifacts/${appId}/users/${userId}/sessions`);
       console.log("TeacherDashboard: Fetching sessions for userId:", userId);
       const sessionsCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/sessions`);
       const q = query(sessionsCollectionRef);
