@@ -9,7 +9,7 @@ import { useFirebase } from './FirebaseContext';
 import { doc, getDoc } from 'firebase/firestore';
 
 // --- Backend API Base URL ---
-const API_BASE_URL = 'https://presensync.onrender.com'; // Ensure this matches your Render backend URL
+const API_BASE_URL = 'https://presensync-backend.onrender.com'; // Ensure this matches your Render backend URL
 
 // Constants for attendance logic (some moved to backend for consistency)
 const QR_EXPIRATION_TIME_MS = 5 * 60 * 1000; // 5 minutes in milliseconds (for initial QR validation)
@@ -39,7 +39,7 @@ function haversineDistance(lat1, lon1, lat2, lon2) {
 
 // Separate component for QR Scanner to manage its lifecycle
 // This component will only be mounted when currentStep is 0
-const QrScannerComponent = ({ onScanSuccess, onScanError, qrScannerReady, setQrScannerReady, qrScanError, setQrScanError }) => {
+const QrScannerComponent = ({ onScanSuccess, onScanError, setQrScannerReady, qrScanError, setQrScanError }) => {
     const qrCodeScannerRef = useRef(null);
     const [isCameraStarting, setIsCameraStarting] = useState(true); // New state to manage camera init spinner
 
@@ -66,17 +66,23 @@ const QrScannerComponent = ({ onScanSuccess, onScanError, qrScannerReady, setQrS
 
         const internalOnScanSuccess = (decodedText, decodedResult) => {
             // Stop scanner immediately on success to prevent further scans/conflicts
-            html5QrCode.clear()
-                .then(() => {
-                    console.log("QR scanner cleared successfully after scan.");
-                    setQrScannerReady(false); // Indicate scanner is no longer ready
-                    onScanSuccess(decodedText, decodedResult); // Pass success to parent
-                })
-                .catch(err => {
-                    console.error("Failed to clear QR scanner after scan:", err);
-                    setQrScannerReady(false);
-                    onScanSuccess(decodedText, decodedResult); // Still pass success, but log error
-                });
+            if (qrCodeScannerRef.current && typeof qrCodeScannerRef.current.clear === 'function') {
+                qrCodeScannerRef.current.clear()
+                    .then(() => {
+                        console.log("QR scanner cleared successfully after scan.");
+                        setQrScannerReady(false); // Indicate scanner is no longer ready
+                        onScanSuccess(decodedText, decodedResult); // Pass success to parent
+                    })
+                    .catch(err => {
+                        console.error("Failed to clear QR scanner after scan:", err);
+                        setQrScannerReady(false);
+                        onScanSuccess(decodedText, decodedResult); // Still pass success, but log error
+                    });
+            } else {
+                console.warn("QR Scanner: clear method not available or scanner not initialized on success. Proceeding anyway.");
+                setQrScannerReady(false);
+                onScanSuccess(decodedText, decodedResult); // Proceed anyway if clear fails
+            }
         };
 
         const internalOnScanError = (errorMessage) => {
@@ -101,12 +107,14 @@ const QrScannerComponent = ({ onScanSuccess, onScanError, qrScannerReady, setQrS
 
         // Cleanup function for component unmount
         return () => {
-            if (qrCodeScannerRef.current) {
+            if (qrCodeScannerRef.current && typeof qrCodeScannerRef.current.clear === 'function') {
                 qrCodeScannerRef.current.clear()
                     .then(() => console.log("QR scanner cleared successfully on unmount."))
                     .catch(err => console.error("Failed to clear QR scanner on unmount:", err));
                 qrCodeScannerRef.current = null;
                 setQrScannerReady(false);
+            } else {
+                console.warn("QR Scanner: clear method not available or scanner not initialized on unmount.");
             }
         };
     }, [onScanSuccess, onScanError, setQrScannerReady, setQrScanError]); // Dependencies for useEffect
