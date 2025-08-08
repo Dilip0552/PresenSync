@@ -488,15 +488,23 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
             const data = await response.json();
             const studentIp = data.ip;
 
+            // Extract the first two octets of both IP addresses
+            const classroomIpPrefix = classroomIp.split('.').slice(0, 2).join('.');
+            const studentIpPrefix = studentIp.split('.').slice(0, 2).join('.');
+
             console.log(`Classroom IP: ${classroomIp}`);
             console.log(`Student IP: ${studentIp}`);
+            console.log(`Classroom IP Prefix: ${classroomIpPrefix}`);
+            console.log(`Student IP Prefix: ${studentIpPrefix}`);
 
-            if (studentIp === classroomIp) {
-                setIpStatus({ status: 'success', message: `IP matched: ${studentIp}` });
-                addNotification('IP check successful!', 'success');
+
+            // Compare the prefixes instead of the full IP address
+            if (studentIpPrefix === classroomIpPrefix) {
+                setIpStatus({ status: 'success', message: `IP prefix matched: ${studentIpPrefix}` });
+                addNotification('Network check successful!', 'success');
                 setCurrentStep(4);
             } else {
-                setIpStatus({ status: 'failed', message: `IP mismatch. Your IP: ${studentIp}` });
+                setIpStatus({ status: 'failed', message: `Network mismatch. Your IP prefix: ${studentIpPrefix}` });
                 addNotification('You are not on the correct Wi-Fi network.', 'error');
             }
         } catch (error) {
@@ -519,7 +527,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
         setOverallLoading(true);
         setAttendanceStatus({ status: 'loading', message: 'Submitting attendance...' });
 
-        if (!qrScanResult || !sessionDetails || !userId || !idToken || !currentGeolocation || faceRecognitionStatus.status !== 'success' || locationStatus.status !== 'success') {
+        if (!qrScanResult || !sessionDetails || !userId || !idToken || !currentGeolocation || faceRecognitionStatus.status !== 'success' || locationStatus.status !== 'success' || ipStatus.status !== 'success') {
             setAttendanceStatus({ status: 'failed', message: 'One or more pre-requisite checks failed. Cannot submit.' });
             addNotification('Pre-requisite checks failed. Cannot mark attendance.', 'error');
             setOverallLoading(false);
