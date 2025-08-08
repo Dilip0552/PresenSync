@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import QRCodeComp from "./QRCodeComp";
 import { collection, addDoc, updateDoc, doc } from "firebase/firestore";
 import { useFirebase } from './FirebaseContext';
 import Spinner from './Spinner';
-import { MapPin, CheckCircle } from 'lucide-react';
+import { MapPin, CheckCircle, Wifi } from 'lucide-react'; // Added Wifi icon
 import { AnimatePresence, motion } from 'framer-motion';
 
 function CreateSessionTab({ classes, addNotification }) {
@@ -16,12 +16,30 @@ function CreateSessionTab({ classes, addNotification }) {
   const [sessionDetailsForQR, setSessionDetailsForQR] = useState(null);
   const [loading, setLoading] = useState(false);
   
-  // NEW STATE FOR LOCATION
   const [location, setLocation] = useState(null);
   const [isFetchingLocation, setIsFetchingLocation] = useState(false);
+  
+  // NEW STATE FOR IP
+  const [publicIp, setPublicIp] = useState(null);
+  const [isFetchingIp, setIsFetchingIp] = useState(false);
 
   const { db, userId } = useFirebase();
   const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+  const fetchTeacherIp = async () => {
+    setIsFetchingIp(true);
+    try {
+        const response = await fetch('https://api.ipify.org?format=json');
+        const data = await response.json();
+        setPublicIp(data.ip);
+        addNotification('Public IP retrieved successfully!', 'success');
+    } catch (error) {
+        console.error("Error fetching IP:", error);
+        addNotification('Failed to get public IP. Check your internet connection.', 'error');
+    } finally {
+        setIsFetchingIp(false);
+    }
+  };
 
   const handleGetLocation = () => {
     setIsFetchingLocation(true);
@@ -65,9 +83,13 @@ function CreateSessionTab({ classes, addNotification }) {
       addNotification("Please select a start date and time.", "error");
       return;
     }
-    // ADDED CHECK FOR LOCATION
     if (!location) {
         addNotification("Please get the classroom location first.", "error");
+        return;
+    }
+    // ADDED CHECK FOR IP
+    if (!publicIp) {
+        addNotification("Please get the classroom's public IP first.", "error");
         return;
     }
 
@@ -83,30 +105,30 @@ function CreateSessionTab({ classes, addNotification }) {
       const sessionsCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/sessions`);
       const newSessionDoc = await addDoc(sessionsCollectionRef, {
         classId: selectedClass.id,
-        className: selectedClass.name, // Store class name for easier display
+        className: selectedClass.name,
         teacherId: userId,
         duration: parseInt(durationValue),
         durationUnit: durationUnit,
-        startTime: new Date(startTime).toISOString(), // Store as ISO string for consistency
+        startTime: new Date(startTime).toISOString(),
         createdAt: new Date().toISOString(),
-        status: 'active', // 'active', 'ended'
+        status: 'active',
         totalStudents: selectedClass.students ? selectedClass.students.length : 0,
         totalPresent: 0,
         totalAbsent: 0,
-        // Using the live fetched location
         classroomLat: location.latitude,
         classroomLon: location.longitude,
+        classroomIp: publicIp // ADDED: Store the teacher's public IP
       });
 
       const qrData = {
         sessionId: newSessionDoc.id,
-        timestamp: Date.now(), // Current time for QR expiration
+        timestamp: Date.now(),
         classId: selectedClass.id,
         className: selectedClass.name,
         teacherId: userId,
-        // Include location for student side validation
         classroomLat: location.latitude,
         classroomLon: location.longitude,
+        classroomIp: publicIp, // ADDED: Include the public IP in the QR code data
       };
 
       setSessionDetailsForQR(qrData);
@@ -144,7 +166,8 @@ function CreateSessionTab({ classes, addNotification }) {
     setSelectedClassId('');
     setDurationValue('');
     setStartTime('');
-    setLocation(null); // Reset location
+    setLocation(null);
+    setPublicIp(null); // ADDED: Reset public IP
   };
 
   return (
@@ -205,7 +228,6 @@ function CreateSessionTab({ classes, addNotification }) {
               />
             </div>
             
-            {/* NEW LOCATION SECTION */}
             <div>
                 <label className="block text-sm font-medium text-gray-700">Classroom Location</label>
                 <div className="mt-1 flex items-center space-x-3">
@@ -250,10 +272,55 @@ function CreateSessionTab({ classes, addNotification }) {
                 </div>
             </div>
 
+            {/* NEW IP ADDRESS SECTION */}
+            <div>
+                <label className="block text-sm font-medium text-gray-700">Classroom Wi-Fi IP</label>
+                <div className="mt-1 flex items-center space-x-3">
+                    <button
+                        type="button"
+                        onClick={fetchTeacherIp}
+                        disabled={isFetchingIp}
+                        className={`flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
+                            isFetchingIp ? 'bg-gray-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'
+                        } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500`}
+                    >
+                        <AnimatePresence mode="wait">
+                            {isFetchingIp ? (
+                                <motion.span
+                                    key="spinner-ip"
+                                    initial={{ opacity: 0, scale: 0.8 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    exit={{ opacity: 0, scale: 0.8 }}
+                                >
+                                    <Spinner isVisible={true} size="small" />
+                                </motion.span>
+                            ) : (
+                                <motion.span
+                                    key="icon-ip"
+                                    initial={{ opacity: 0, scale: 0.8 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    exit={{ opacity: 0, scale: 0.8 }}
+                                    className="flex items-center"
+                                >
+                                    <Wifi className="mr-2" size={16} />
+                                    Get Public IP
+                                </motion.span>
+                            )}
+                        </AnimatePresence>
+                    </button>
+                    {publicIp && (
+                        <span className="text-sm text-gray-500 flex items-center">
+                            <CheckCircle size={16} className="text-green-500 mr-1" />
+                            IP: {publicIp}
+                        </span>
+                    )}
+                </div>
+            </div>
+
             <button
               onClick={handleCreateSession}
               className="px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-bold shadow-md mt-4"
-              disabled={loading || !location}
+              disabled={loading || !location || !publicIp}
             >
               {loading ? <Spinner size="small" color="white" /> : 'Create Session'}
             </button>
@@ -269,7 +336,7 @@ function CreateSessionTab({ classes, addNotification }) {
               sessionData={sessionDetailsForQR}
               handleBack={handleBackToCreateSession}
               addNotification={addNotification}
-              onEndSession={handleEndSessionInFirestore} // Pass the Firestore end session handler
+              onEndSession={handleEndSessionInFirestore}
             />
           </div>
           <button
