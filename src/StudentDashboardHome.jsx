@@ -78,145 +78,92 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
 
     // --- QR Code Scanning Logic ---
     useEffect(() => {
-        let scannerInstance = null;
+        // This is the sole place where the scanner's lifecycle is managed
+        const startScanner = () => {
+            const qrReaderElement = document.getElementById("qr-reader");
 
-        if (currentStep === 0) {
-            if (!qrCodeScannerRef.current) {
+            if (qrReaderElement && !qrCodeScannerRef.current) {
                 setQrScanError('');
-                const qrReaderElement = document.getElementById("qr-reader"); // Get the container element
-
-                if (qrReaderElement) { // Check if the container exists
-                    scannerInstance = new Html5QrcodeScanner(
-                        "qr-reader",
-                        {
-                            fps: 10,
-                            qrbox: { width: 250, height: 250 },
-                            disableFlip: false,
-                            videoConstraints: {
-                                facingMode: { exact: "environment" },
-                                width: { ideal: 1920 },
-                                height: { ideal: 1080 }
-                            }
-                        },
-                        false
-                    );
-
-                const onScanSuccess = async (decodedText, decodedResult) => {
-                        if (qrScannerBusyRef.current) {
-                            console.warn("QR scanner is busy, ignoring scan result.");
-                            return;
+                const scannerInstance = new Html5QrcodeScanner(
+                    "qr-reader",
+                    {
+                        fps: 10,
+                        qrbox: { width: 250, height: 250 },
+                        disableFlip: false,
+                        videoConstraints: {
+                            facingMode: { exact: "environment" },
+                            width: { ideal: 1920 },
+                            height: { ideal: 1080 }
                         }
+                    },
+                    false
+                );
 
-                        qrScannerBusyRef.current = true; // Set the busy flag
+                const onScanSuccess = async (decodedText) => {
+                    // This function should ONLY update state and NOT try to re-render the scanner
+                    if (qrScannerBusyRef.current) {
+                        console.warn("QR scanner is busy, ignoring scan result.");
+                        return;
+                    }
+
+                    qrScannerBusyRef.current = true; // Set the busy flag
+
+                    try {
+                        if (!isMountedRef.current) return;
+
+                        setOverallLoading(true);
+                        setQrScanError('');
 
                         try {
-                            if (qrCodeScannerRef.current) {
-                                try {
-                                    await qrCodeScannerRef.current.clear(); // Await the clear operation
-                                    qrCodeScannerRef.current = null;
-                                } catch (clearError) {
-                                    console.error("Error clearing QR scanner:", clearError);
-                                }
+                            const qrData = JSON.parse(decodedText);
+                            const { sessionId, timestamp, classId, teacherId, classroomLat, classroomLon } = qrData;
+
+                            if (!sessionId || !timestamp || !classId || !teacherId) {
+                                throw new Error('Invalid QR Code data structure!');
                             }
 
-                            if (!isMountedRef.current) return; // Check if component is mounted
+                            const sessionDocRef = doc(db, `artifacts/${appId}/users/${teacherId}/sessions`, sessionId);
+                            const sessionSnap = await getDoc(sessionDocRef);
 
-                            setOverallLoading(true);
-                            setQrScanError('');
-
-                            try {
-                                const qrData = JSON.parse(decodedText);
-                                const { sessionId, timestamp, classId, teacherId, classroomLat, classroomLon } = qrData;
-
-                                if (!sessionId || !timestamp || !classId || !teacherId) {
-                                    addNotification('Invalid QR Code data structure!', 'error');
-                                    setQrScanError('Invalid QR data. Please try again.');
-                                    setQrScanResult(null);
-                                    if (isMountedRef.current && document.getElementById("qr-reader")) {
-                                        // Check if component is mounted and container exists
-                                        scannerInstance = new Html5QrcodeScanner("qr-reader", { fps: 10, qrbox: { width: 250, height: 250 } }, false);
-                                        scannerInstance.render(onScanSuccess, onScanError);
-                                        qrCodeScannerRef.current = scannerInstance;
-                                    }
-                                    return;
-                                }
-
-                                const sessionDocRef = doc(db, `artifacts/${appId}/users/${teacherId}/sessions`, sessionId);
-                                const sessionSnap = await getDoc(sessionDocRef);
-
-                                if (!sessionSnap.exists()) {
-                                    addNotification('Session not found or invalid QR code!', 'error');
-                                    setQrScanError('Session not active or invalid QR.');
-                                    setQrScanResult(null);
-                                    if (isMountedRef.current && document.getElementById("qr-reader")) {
-                                        // Check if component is mounted and container exists
-                                        scannerInstance = new Html5QrcodeScanner("qr-reader", { fps: 10, qrbox: { width: 250, height: 250 } }, false);
-                                        scannerInstance.render(onScanSuccess, onScanError);
-                                        qrCodeScannerRef.current = scannerInstance;
-                                    }
-                                    return;
-                                }
-
-                                const sessionFirestoreData = sessionSnap.data();
-                                setSessionDetails(sessionFirestoreData);
-
-                                const sessionStartTime = new Date(sessionFirestoreData.startTime).getTime();
-                                const sessionDurationMs = (sessionFirestoreData.durationUnit === 'min' ? sessionFirestoreData.duration : sessionFirestoreData.duration * 60) * 60 * 1000;
-                                const sessionEndTime = sessionStartTime + sessionDurationMs;
-                                const currentTime = Date.now();
-
-                                if (currentTime < sessionStartTime) {
-                                    addNotification('Session has not started yet!', 'error');
-                                    setQrScanError('Session not started yet.');
-                                    setQrScanResult(null);
-                                    if (isMountedRef.current && document.getElementById("qr-reader")) {
-                                        // Check if component is mounted and container exists
-                                        scannerInstance = new Html5QrcodeScanner("qr-reader", { fps: 10, qrbox: { width: 250, height: 250 } }, false);
-                                        scannerInstance.render(onScanSuccess, onScanError);
-                                        qrCodeScannerRef.current = scannerInstance;
-                                    }
-                                    return;
-                                }
-
-                                if (currentTime > sessionEndTime || sessionFirestoreData.status === 'ended') {
-                                    addNotification('Session has ended or QR Code expired!', 'error');
-                                    setQrScanError('Session ended or QR expired.');
-                                    setQrScanResult(null);
-                                    if (isMountedRef.current && document.getElementById("qr-reader")) {
-                                        // Check if component is mounted and container exists
-                                        scannerInstance = new Html5QrcodeScanner("qr-reader", { fps: 10, qrbox: { width: 250, height: 250 } }, false);
-                                        scannerInstance.render(onScanSuccess, onScanError);
-                                        qrCodeScannerRef.current = scannerInstance;
-                                    }
-                                    return;
-                                }
-
-                                if (isMountedRef.current) {
-                                    setQrScanResult(qrData);
-                                    addNotification('QR Code scanned successfully!', 'success');
-                                    setCurrentStep(1);
-                                }
-
-                            } catch (error) {
-                                console.error("Error processing QR code:", error);
-                                addNotification('Invalid QR Code format or network error!', 'error');
-                                setQrScanError('Scan failed. Invalid QR or network issue.');
-                                setQrScanResult(null);
-                                if (isMountedRef.current && document.getElementById("qr-reader")) {
-                                    // Check if component is mounted and container exists
-                                    scannerInstance = new Html5QrcodeScanner("qr-reader", { fps: 10, qrbox: { width: 250, height: 250 } }, false);
-                                    scannerInstance.render(onScanSuccess, onScanError);
-                                    qrCodeScannerRef.current = scannerInstance;
-                                }
-                            } finally {
-                                if (isMountedRef.current) {
-                                    setOverallLoading(false);
-                                }
+                            if (!sessionSnap.exists()) {
+                                throw new Error('Session not found or invalid QR code!');
                             }
+
+                            const sessionFirestoreData = sessionSnap.data();
+                            setSessionDetails(sessionFirestoreData);
+
+                            const sessionStartTime = new Date(sessionFirestoreData.startTime).getTime();
+                            const sessionDurationMs = (sessionFirestoreData.durationUnit === 'min' ? sessionFirestoreData.duration : sessionFirestoreData.duration * 60) * 60 * 1000;
+                            const sessionEndTime = sessionStartTime + sessionDurationMs;
+                            const currentTime = Date.now();
+
+                            if (currentTime < sessionStartTime) {
+                                throw new Error('Session has not started yet!');
+                            }
+
+                            if (currentTime > sessionEndTime || sessionFirestoreData.status === 'ended') {
+                                throw new Error('Session has ended or QR Code expired!');
+                            }
+
+                            if (isMountedRef.current) {
+                                setQrScanResult(qrData);
+                                addNotification('QR Code scanned successfully!', 'success');
+                                setCurrentStep(1); // This will trigger the useEffect cleanup and stop the scanner
+                            }
+                        } catch (error) {
+                            console.error("Error processing QR code:", error);
+                            addNotification(error.message, 'error');
+                            setQrScanError('Scan failed. ' + error.message);
+                            setQrScanResult(null);
                         } finally {
-                            qrScannerBusyRef.current = false; // Release the busy flag
+                            if (isMountedRef.current) {
+                                setOverallLoading(false);
+                            }
                         }
-                    };
+                    } finally {
+                        qrScannerBusyRef.current = false; // Release the busy flag
+                    }
+                };
 
                 const onScanError = (errorMessage) => {
                     if (errorMessage.includes("NotAllowedError") || errorMessage.includes("Permission denied")) {
@@ -232,51 +179,53 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                         setQrScanError("Failed to start camera. Check if it's in use by another app.");
                         addNotification("Failed to start camera. Is it in use by another app?", "error");
                     } else if (errorMessage.includes("QR code not found")) {
-                         setQrScanError("No QR code detected. Please align the QR code clearly.");
+                        setQrScanError("No QR code detected. Please align the QR code clearly.");
                     } else {
-                         setQrScanError("Scanning error. Please check camera feed.");
+                        setQrScanError("Scanning error. Please check camera feed.");
                     }
                 };
 
                 try {
-                        scannerInstance.render(onScanSuccess, onScanError);
-                        qrCodeScannerRef.current = scannerInstance;
-                        setQrScannerReady(true);
-                    } catch (renderError) {
-                        console.error("Error rendering QR scanner:", renderError);
-                        setQrScanError("Failed to start QR scanner. Please check console for details.");
-                        addNotification("Failed to start QR scanner. Please check console for details.", "error");
-                    }
-                } else {
-                    console.warn("QR code reader container element not found.");
-                    setQrScanError("QR code reader container not found. Please check the DOM.");
-                    addNotification("QR code reader container not found. Please check the DOM.", "error");
+                    scannerInstance.render(onScanSuccess, onScanError);
+                    qrCodeScannerRef.current = scannerInstance;
+                    setQrScannerReady(true);
+                } catch (renderError) {
+                    console.error("Error rendering QR scanner:", renderError);
+                    setQrScanError("Failed to start QR scanner. Please check console for details.");
+                    addNotification("Failed to start QR scanner. Please check console for details.", "error");
                 }
-        } else {
-            if (qrCodeScannerRef.current) {
-                const clearScanner = async () => {
-                    try {
-                        await qrCodeScannerRef.current.clear();
-                        qrCodeScannerRef.current = null;
-                        setQrScannerReady(false);
-                        setQrScanError('');
-                    } catch (err) {
-                        console.error("Failed to clear QR scanner on step change:", err);
-                        setQrScanError('Failed to stop scanner.');
-                    }
-                };
-                clearScanner();
-            }
-        }
-    }
-        return () => {
-            isMountedRef.current = false;
-            if (qrCodeScannerRef.current) {
-                qrCodeScannerRef.current.clear().catch(err => console.error("Failed to clear QR scanner on unmount", err));
-                qrCodeScannerRef.current = null;
             }
         };
-    }, [currentStep, addNotification, db, appId])
+
+        const stopScanner = async () => {
+            if (qrCodeScannerRef.current) {
+                try {
+                    await qrCodeScannerRef.current.clear();
+                } catch (err) {
+                    // Ignore the 'removeChild' error during a re-render.
+                    // This error indicates the scanner's UI has already been removed.
+                    console.error("Failed to clear QR scanner gracefully:", err);
+                }
+                qrCodeScannerRef.current = null;
+                setQrScannerReady(false);
+                setQrScanError('');
+            }
+        };
+        
+        if (currentStep === 0) {
+            startScanner();
+        } else {
+            // Stop the scanner immediately when the step changes
+            stopScanner();
+        }
+
+        // Cleanup function for the useEffect hook
+        return () => {
+            isMountedRef.current = false;
+            stopScanner();
+        };
+    }, [currentStep, addNotification, db, appId]);
+
 
     // --- Face Recognition Logic ---
 
@@ -357,7 +306,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
 
                     if (prevFaceDetectionRef.current) {
                         const prevNoseX = prevFaceDetectionRef.current.landmarks.getNose()[3].x;
-                        const currNoseX = currDetection.landmarks.getNose()[3].x;
+                        const currNoseX = resizedDetections.landmarks.getNose()[3].x;
                         const deltaX = Math.abs(currNoseX - prevNoseX);
 
                         if (deltaX > HEAD_TURN_THRESHOLD * displaySize.width && (currentTime - lastHeadTurnTimeRef.current > 1000)) {
