@@ -18,8 +18,6 @@ const FACE_MATCH_THRESHOLD = 0.6; // Lower value means stricter match
 const BLINK_THRESHOLD = 0.4; // Threshold for eye closure to detect blink
 const HEAD_TURN_THRESHOLD = 0.1; // Threshold for head turn detection
 
-const MOCK_ALLOWED_IPS = ['192.168.1.1', '10.0.0.1', '203.0.113.45']; // Example allowed IPs (frontend check, backend can re-verify)
-
 // Helper function to calculate Haversine distance between two points
 function haversineDistance(lat1, lon1, lat2, lon2) {
     const R = 6371e3; // metres
@@ -306,7 +304,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
 
                     if (prevFaceDetectionRef.current) {
                         const prevNoseX = prevFaceDetectionRef.current.landmarks.getNose()[3].x;
-                        const currNoseX = resizedDetections.landmarks.getNose()[3].x; // Corrected typo here
+                        const currNoseX = resizedDetections.landmarks.getNose()[3].x;
                         const deltaX = Math.abs(currNoseX - prevNoseX);
 
                         if (deltaX > HEAD_TURN_THRESHOLD * displaySize.width && (currentTime - lastHeadTurnTimeRef.current > 1000)) {
@@ -433,7 +431,6 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                     setCurrentGeolocation({ latitude: studentLat, longitude: studentLon });
                     const distance = haversineDistance(CLASSROOM_LAT, CLASSROOM_LON, studentLat, studentLon);
 
-                    // LOGGING ADDED HERE
                     console.log(`Classroom Coordinates: Lat=${CLASSROOM_LAT}, Lon=${CLASSROOM_LON}`);
                     console.log(`Student Coordinates: Lat=${studentLat}, Lon=${studentLon}`);
                     console.log(`Calculated Distance: ${distance} meters`);
@@ -473,33 +470,43 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
         }
     }, [currentStep, checkGPSLocation]);
 
-    // --- Optional: Public IP Check Logic ---
+    // NEW LOGIC FOR IP CHECK
     const checkPublicIP = useCallback(async () => {
         setOverallLoading(true);
         setIpStatus({ status: 'loading', message: 'Checking public IP...' });
+        
+        if (!sessionDetails || !sessionDetails.classroomIp) {
+            setIpStatus({ status: 'failed', message: 'Classroom IP not available in session data.' });
+            addNotification('Cannot perform IP check: missing classroom IP.', 'error');
+            setOverallLoading(false);
+            return;
+        }
+
         try {
+            const classroomIp = sessionDetails.classroomIp;
             const response = await fetch('https://api.ipify.org?format=json');
             const data = await response.json();
-            const userIp = data.ip;
+            const studentIp = data.ip;
 
-            if (MOCK_ALLOWED_IPS.includes(userIp)) {
-                setIpStatus({ status: 'success', message: `IP matched: ${userIp}` });
+            console.log(`Classroom IP: ${classroomIp}`);
+            console.log(`Student IP: ${studentIp}`);
+
+            if (studentIp === classroomIp) {
+                setIpStatus({ status: 'success', message: `IP matched: ${studentIp}` });
                 addNotification('IP check successful!', 'success');
                 setCurrentStep(4);
             } else {
-                setIpStatus({ status: 'failed', message: `IP not allowed: ${userIp}` });
-                addNotification('Your IP is not on the allowed list.', 'warning');
-                setCurrentStep(4);
+                setIpStatus({ status: 'failed', message: `IP mismatch. Your IP: ${studentIp}` });
+                addNotification('You are not on the correct Wi-Fi network.', 'error');
             }
         } catch (error) {
             console.error("Error fetching IP:", error);
             setIpStatus({ status: 'failed', message: 'Failed to retrieve public IP.' });
             addNotification('Could not check public IP.', 'warning');
-            setCurrentStep(4);
         } finally {
             setOverallLoading(false);
         }
-    }, [addNotification]);
+    }, [addNotification, sessionDetails]);
 
     useEffect(() => {
         if (currentStep === 3) {
@@ -802,7 +809,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                             transition={{ duration: 0.3 }}
                             className="flex flex-col items-center justify-center"
                         >
-                            <h3 className="text-xl sm:text-2xl font-semibold text-gray-700 mb-4">Step 4: IP Address Check (Optional)</h3>
+                            <h3 className="text-xl sm:text-2xl font-semibold text-gray-700 mb-4">Step 4: IP Address Check</h3>
                             <p className="text-sm sm:text-base text-gray-500 mb-6 text-center">Verifying your network connection.</p>
                             <Spinner message={ipStatus.message} isVisible={ipStatus.status === 'loading'} />
                             <StatusCard
