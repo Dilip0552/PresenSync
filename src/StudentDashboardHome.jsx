@@ -433,6 +433,11 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                     setCurrentGeolocation({ latitude: studentLat, longitude: studentLon });
                     const distance = haversineDistance(CLASSROOM_LAT, CLASSROOM_LON, studentLat, studentLon);
 
+                    // LOGGING ADDED HERE
+                    console.log(`Classroom Coordinates: Lat=${CLASSROOM_LAT}, Lon=${CLASSROOM_LON}`);
+                    console.log(`Student Coordinates: Lat=${studentLat}, Lon=${studentLon}`);
+                    console.log(`Calculated Distance: ${distance} meters`);
+
                     if (distance <= GPS_RADIUS_METERS) {
                         setLocationStatus({ status: 'success', message: `Within ${Math.round(distance)}m of classroom.` });
                         addNotification('Location check successful!', 'success');
@@ -729,7 +734,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                         >
                             <h3 className="text-xl sm:text-2xl font-semibold text-gray-700 mb-4">Step 2: Face Authentication</h3>
                             <p className="text-sm sm:text-base text-gray-500 mb-6 text-center">Align your face in the frame and perform the liveness action (blink or slight head turn).</p>
-                            <div className="relative w-full max-w-xs sm:max-w-sm lg:max-w-md **aspect-square** bg-gray-100 rounded-xl overflow-hidden shadow-inner flex items-center justify-center">
+                            <div className="relative w-full max-w-xs sm:max-w-sm lg:max-w-md aspect-square bg-gray-100 rounded-xl overflow-hidden shadow-inner flex items-center justify-center">
                                 <video ref={videoRef} autoPlay muted playsInline className="absolute w-full h-full object-cover rounded-xl"></video>
                                 <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full"></canvas>
                                 <div className="absolute inset-0 border-4 border-dashed border-indigo-400 rounded-xl flex items-center justify-center">
