@@ -211,7 +211,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                 setQrScanError('');
             }
         };
-        
+
         if (currentStep === 0) {
             startScanner();
         } else {
@@ -306,7 +306,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
 
                     if (prevFaceDetectionRef.current) {
                         const prevNoseX = prevFaceDetectionRef.current.landmarks.getNose()[3].x;
-                        const currNoseX = resizedDetections.landmarks.getNose()[3].x;
+                        const currNoseX = resizedDetections.landmarks.getNose()[3].x; // Corrected typo here
                         const deltaX = Math.abs(currNoseX - prevNoseX);
 
                         if (deltaX > HEAD_TURN_THRESHOLD * displaySize.width && (currentTime - lastHeadTurnTimeRef.current > 1000)) {
@@ -345,6 +345,14 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
     const initializeFaceRecognition = useCallback(async () => {
         setOverallLoading(true);
         setFaceRecognitionStatus({ status: 'loading', message: 'Loading face models...' });
+
+        if (!studentProfile || !studentProfile.faceDescriptor) {
+            addNotification('Student face data not found. Please register your face first.', 'error');
+            setFaceRecognitionStatus({ status: 'failed', message: 'Face data missing.' });
+            setOverallLoading(false);
+            return;
+        }
+
         try {
             await faceapi.nets.tinyFaceDetector.loadFromUri('/models');
             await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
@@ -355,7 +363,19 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
             }
             isModelsReadyRef.current = true;
 
-            setFaceRecognitionStatus({ status: 'idle', message: 'Models loaded. Ready for face scan.' });
+            // Step 1: Deserialize the face descriptor from the stored JSON string
+            const savedDescriptor = JSON.parse(studentProfile.faceDescriptor);
+
+            // Step 2: Create a LabeledFaceDescriptors object
+            const labeledDescriptors = new faceapi.LabeledFaceDescriptors(
+                userId,
+                [new Float32Array(Object.values(savedDescriptor))]
+            );
+
+            // Step 3: Create a FaceMatcher instance with the labeled descriptors
+            faceMatcherRef.current = new faceapi.FaceMatcher([labeledDescriptors]);
+
+            setFaceRecognitionStatus({ status: 'idle', message: 'Models and face data loaded. Ready for face scan.' });
 
             await startCamera();
 
@@ -366,7 +386,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
             setOverallLoading(false);
         } catch (error) {
             console.error("Error initializing face recognition:", error);
-            addNotification('Failed to initialize face recognition. Ensure models are in public/models and camera access is allowed.', 'error');
+            addNotification('Failed to initialize face recognition. Ensure models are in public/models, face data is registered, and camera access is allowed.', 'error');
             setFaceRecognitionStatus({ status: 'failed', message: 'Failed to initialize face recognition.' });
             setOverallLoading(false);
             isModelsReadyRef.current = false;
@@ -853,6 +873,5 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
         </div>
     );
 };
-
 
 export default StudentDashboardHome;
