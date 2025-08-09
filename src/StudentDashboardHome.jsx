@@ -539,7 +539,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
             !currentGeolocation || 
             faceRecognitionStatus.status !== 'success' || 
             locationStatus.status !== 'success' || 
-            ipStatus.status !== 'success'
+            (sessionDetails.classroomIp && ipStatus.status !== 'success')
         ) {
             console.error("Attendance submission failed. Prerequisites not met.", {
                 qrScanResult: !!qrScanResult,
