@@ -47,7 +47,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
     const [sessionDetails, setSessionDetails] = useState(null); // Full session details from Firestore (fetched after QR scan)
     const [currentGeolocation, setCurrentGeolocation] = useState(null); // Store actual student geolocation
     const [qrScanError, setQrScanError] = useState(''); // New state for QR scan specific error messages
-    const [faceAuthComplete, setFaceAuthComplete] = useState(false); // NEW: Track if face auth is successful
+    const [faceAuthComplete, setFaceAuthComplete] = useState(false); // Track if face auth is successful
 
     const videoRef = useRef();
     const canvasRef = useRef();
@@ -319,7 +319,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                     if (livenessBlinkCountRef.current >= 1 || livenessHeadTurnCountRef.current >= 1) {
                         setFaceRecognitionStatus({ status: 'success', message: 'Face matched and liveness confirmed!' });
                         addNotification('Face authentication successful!', 'success');
-                        setFaceAuthComplete(true); // NEW: Set the flag on success
+                        setFaceAuthComplete(true);
                         if (detectionIntervalRef.current) {
                             clearInterval(detectionIntervalRef.current);
                             detectionIntervalRef.current = null;
@@ -340,7 +340,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                 setFaceRecognitionStatus({ status: 'pending', message: 'No face detected. Please center your face.' });
             }
         }
-    }, [addNotification, stopCamera, userId, faceAuthComplete]); // Added faceAuthComplete to dependencies
+    }, [addNotification, stopCamera, userId, faceAuthComplete]);
 
     const initializeFaceRecognition = useCallback(async () => {
         setOverallLoading(true);
@@ -373,7 +373,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
             faceMatcherRef.current = new faceapi.FaceMatcher([labeledDescriptors]);
 
             setFaceRecognitionStatus({ status: 'idle', message: 'Models and face data loaded. Ready for face scan.' });
-            setFaceAuthComplete(false); // NEW: Reset the flag on initialization
+            setFaceAuthComplete(false);
 
             await startCamera();
 
@@ -896,7 +896,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                                     setOverallLoading(false);
                                     setQrScannerReady(false);
                                     setSessionDetails(null);
-                                    setFaceAuthComplete(false); // NEW: Reset the flag
+                                    setFaceAuthComplete(false);
                                 }}
                                 className="px-6 py-3 sm:px-8 sm:py-3 bg-indigo-600 text-white rounded-full shadow-lg hover:bg-indigo-700 transition-colors transform hover:scale-105 text-sm sm:text-base"
                             >
