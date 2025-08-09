@@ -50,8 +50,7 @@ app = FastAPI(
 origins = [
     "http://localhost:5173",  # Your React frontend local development server
     "http://127.0.0.1:5173",
-    # Add your Vercel frontend URL here when deployed
-    # Example: "https://your-presensync-frontend.vercel.app",
+    "https://presensync.vercel.app", # Vercel URL
     "https://*.vercel.app", # Allow all Vercel subdomains for preview deployments
 ]
 
@@ -95,7 +94,8 @@ async def get_current_user_from_token(request: Request, id_token: str = Depends(
 
         # Fetch user's role from Firestore (private profile)
         app_id = os.getenv("FIREBASE_PROJECT_ID", "default-app-id") # Ensure this matches your __app_id
-        user_profile_ref = db.collection(f"artifacts/{app_id}/users/{uid}/profile").document("userProfile")
+        # FIX: Use the correct Firestore API with doc function
+        user_profile_ref = db.collection(f"artifacts/{app_id}/public/data/allUserProfiles").document(uid)
         user_profile_doc = user_profile_ref.get()
 
         if not user_profile_doc.exists:
@@ -307,4 +307,3 @@ async def send_global_notification(
 @app.get("/", summary="Root endpoint for API status")
 async def read_root():
     return {"message": "PresenSync Backend API is running!"}
-
