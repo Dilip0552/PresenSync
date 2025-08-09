@@ -47,6 +47,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
     const [sessionDetails, setSessionDetails] = useState(null); // Full session details from Firestore (fetched after QR scan)
     const [currentGeolocation, setCurrentGeolocation] = useState(null); // Store actual student geolocation
     const [qrScanError, setQrScanError] = useState(''); // New state for QR scan specific error messages
+    const [faceAuthComplete, setFaceAuthComplete] = useState(false); // NEW: Track if face auth is successful
 
     const videoRef = useRef();
     const canvasRef = useRef();
@@ -258,7 +259,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
     }, []);
 
     const detectFaceAndLiveness = useCallback(async () => {
-        if (!isModelsReadyRef.current || !videoRef.current || videoRef.current.paused || videoRef.current.ended || !faceMatcherRef.current) {
+        if (faceAuthComplete || !isModelsReadyRef.current || !videoRef.current || videoRef.current.paused || videoRef.current.ended || !faceMatcherRef.current) {
             return;
         }
 
@@ -318,6 +319,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                     if (livenessBlinkCountRef.current >= 1 || livenessHeadTurnCountRef.current >= 1) {
                         setFaceRecognitionStatus({ status: 'success', message: 'Face matched and liveness confirmed!' });
                         addNotification('Face authentication successful!', 'success');
+                        setFaceAuthComplete(true); // NEW: Set the flag on success
                         if (detectionIntervalRef.current) {
                             clearInterval(detectionIntervalRef.current);
                             detectionIntervalRef.current = null;
@@ -338,7 +340,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                 setFaceRecognitionStatus({ status: 'pending', message: 'No face detected. Please center your face.' });
             }
         }
-    }, [addNotification, stopCamera, userId]);
+    }, [addNotification, stopCamera, userId, faceAuthComplete]); // Added faceAuthComplete to dependencies
 
     const initializeFaceRecognition = useCallback(async () => {
         setOverallLoading(true);
@@ -361,19 +363,17 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
             }
             isModelsReadyRef.current = true;
 
-            // Step 1: Deserialize the face descriptor from the stored JSON string
             const savedDescriptor = JSON.parse(studentProfile.faceDescriptor);
 
-            // Step 2: Create a LabeledFaceDescriptors object
             const labeledDescriptors = new faceapi.LabeledFaceDescriptors(
                 userId,
                 [new Float32Array(Object.values(savedDescriptor))]
             );
 
-            // Step 3: Create a FaceMatcher instance with the labeled descriptors
             faceMatcherRef.current = new faceapi.FaceMatcher([labeledDescriptors]);
 
             setFaceRecognitionStatus({ status: 'idle', message: 'Models and face data loaded. Ready for face scan.' });
+            setFaceAuthComplete(false); // NEW: Reset the flag on initialization
 
             await startCamera();
 
@@ -390,7 +390,6 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
             isModelsReadyRef.current = false;
         }
     }, [addNotification, studentProfile, userId, startCamera, detectFaceAndLiveness]);
-
 
     useEffect(() => {
         if (currentStep === 1) {
@@ -470,7 +469,6 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
         }
     }, [currentStep, checkGPSLocation]);
 
-    // NEW LOGIC FOR IP CHECK
     const checkPublicIP = useCallback(async () => {
         setOverallLoading(true);
         setIpStatus({ status: 'loading', message: 'Checking public IP...' });
@@ -488,7 +486,6 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
             const data = await response.json();
             const studentIp = data.ip;
 
-            // Extract the first two octets of both IP addresses
             const classroomIpPrefix = classroomIp.split('.').slice(0, 2).join('.');
             const studentIpPrefix = studentIp.split('.').slice(0, 2).join('.');
 
@@ -497,8 +494,6 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
             console.log(`Classroom IP Prefix: ${classroomIpPrefix}`);
             console.log(`Student IP Prefix: ${studentIpPrefix}`);
 
-
-            // Compare the prefixes instead of the full IP address
             if (studentIpPrefix === classroomIpPrefix) {
                 setIpStatus({ status: 'success', message: `IP prefix matched: ${studentIpPrefix}` });
                 addNotification('Network check successful!', 'success');
@@ -527,10 +522,6 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
         setOverallLoading(true);
         setAttendanceStatus({ status: 'loading', message: 'Submitting attendance...' });
         
-        // This is a temporary bypass for the IP check for testing purposes.
-        // The check is now `ipStatus.status !== 'failed'` instead of `ipStatus.status !== 'success'`.
-        // This allows the flow to proceed even if the IP check fails.
-        // FINAL FIX: Explicitly check for 'success' status for all prerequisites.
         if (
             !qrScanResult || 
             !sessionDetails || 
@@ -539,7 +530,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
             !currentGeolocation || 
             faceRecognitionStatus.status !== 'success' || 
             locationStatus.status !== 'success' || 
-            (sessionDetails.classroomIp && ipStatus.status !== 'success')
+            ipStatus.status !== 'success'
         ) {
             console.error("Attendance submission failed. Prerequisites not met.", {
                 qrScanResult: !!qrScanResult,
@@ -905,6 +896,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                                     setOverallLoading(false);
                                     setQrScannerReady(false);
                                     setSessionDetails(null);
+                                    setFaceAuthComplete(false); // NEW: Reset the flag
                                 }}
                                 className="px-6 py-3 sm:px-8 sm:py-3 bg-indigo-600 text-white rounded-full shadow-lg hover:bg-indigo-700 transition-colors transform hover:scale-105 text-sm sm:text-base"
                             >
