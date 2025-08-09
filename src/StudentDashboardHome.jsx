@@ -48,6 +48,13 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
     const [currentGeolocation, setCurrentGeolocation] = useState(null); // Store actual student geolocation
     const [qrScanError, setQrScanError] = useState(''); // New state for QR scan specific error messages
     const [faceAuthComplete, setFaceAuthComplete] = useState(false);
+    
+    // NEW: Add a ref to track verification completion states
+    const verificationStatesRef = useRef({
+        faceVerified: false,
+        locationVerified: false,
+        ipVerified: false
+    });
 
     const videoRef = useRef();
     const canvasRef = useRef();
@@ -69,16 +76,18 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
     // Step definitions for progress tracker
     const steps = [
         { name: 'Scan QR Code', icon: QrCode, status: qrScanResult ? 'completed' : 'pending' },
-        { name: 'Face Authentication', icon: UserCheck, status: faceRecognitionStatus.status === 'success' ? 'completed' : faceRecognitionStatus.status === 'failed' ? 'failed' : 'pending' },
-        { name: 'Location Check', icon: MapPin, status: locationStatus.status === 'success' ? 'completed' : locationStatus.status === 'failed' ? 'failed' : 'pending' },
-        { name: 'IP Check (Optional)', icon: Wifi, status: ipStatus.status === 'success' ? 'completed' : ipStatus.status === 'failed' ? 'failed' : 'pending' },
+        { name: 'Face Authentication', icon: UserCheck, status: verificationStatesRef.current.faceVerified ? 'completed' : faceRecognitionStatus.status === 'failed' ? 'failed' : 'pending' },
+        { name: 'Location Check', icon: MapPin, status: verificationStatesRef.current.locationVerified ? 'completed' : locationStatus.status === 'failed' ? 'failed' : 'pending' },
+        { name: 'IP Check (Optional)', icon: Wifi, status: verificationStatesRef.current.ipVerified ? 'completed' : ipStatus.status === 'failed' ? 'failed' : 'pending' },
         { name: 'Submit Attendance', icon: Scan, status: attendanceStatus.status === 'success' ? 'completed' : attendanceStatus.status === 'failed' ? 'failed' : 'pending' },
     ];
 
     // --- QR Code Scanning Logic ---
     useEffect(() => {
+        // This is the sole place where the scanner's lifecycle is managed
         const startScanner = () => {
             const qrReaderElement = document.getElementById("qr-reader");
+
             if (qrReaderElement && !qrCodeScannerRef.current) {
                 setQrScanError('');
                 const scannerInstance = new Html5QrcodeScanner(
@@ -95,42 +104,57 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                     },
                     false
                 );
+
                 const onScanSuccess = async (decodedText) => {
+                    // This function should ONLY update state and NOT try to re-render the scanner
                     if (qrScannerBusyRef.current) {
+                        console.warn("QR scanner is busy, ignoring scan result.");
                         return;
                     }
-                    qrScannerBusyRef.current = true;
+
+                    qrScannerBusyRef.current = true; // Set the busy flag
+
                     try {
                         if (!isMountedRef.current) return;
+
                         setOverallLoading(true);
                         setQrScanError('');
+
                         try {
                             const qrData = JSON.parse(decodedText);
                             const { sessionId, timestamp, classId, teacherId, classroomLat, classroomLon } = qrData;
+
                             if (!sessionId || !timestamp || !classId || !teacherId) {
                                 throw new Error('Invalid QR Code data structure!');
                             }
+
                             const sessionDocRef = doc(db, `artifacts/${appId}/users/${teacherId}/sessions`, sessionId);
                             const sessionSnap = await getDoc(sessionDocRef);
+
                             if (!sessionSnap.exists()) {
                                 throw new Error('Session not found or invalid QR code!');
                             }
+
                             const sessionFirestoreData = sessionSnap.data();
                             setSessionDetails(sessionFirestoreData);
+
                             const sessionStartTime = new Date(sessionFirestoreData.startTime).getTime();
                             const sessionDurationMs = (sessionFirestoreData.durationUnit === 'min' ? sessionFirestoreData.duration : sessionFirestoreData.duration * 60) * 60 * 1000;
                             const sessionEndTime = sessionStartTime + sessionDurationMs;
                             const currentTime = Date.now();
+
                             if (currentTime < sessionStartTime) {
                                 throw new Error('Session has not started yet!');
                             }
+
                             if (currentTime > sessionEndTime || sessionFirestoreData.status === 'ended') {
                                 throw new Error('Session has ended or QR Code expired!');
                             }
+
                             if (isMountedRef.current) {
                                 setQrScanResult(qrData);
                                 addNotification('QR Code scanned successfully!', 'success');
-                                setCurrentStep(1);
+                                setCurrentStep(1); // This will trigger the useEffect cleanup and stop the scanner
                             }
                         } catch (error) {
                             console.error("Error processing QR code:", error);
@@ -143,9 +167,10 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                             }
                         }
                     } finally {
-                        qrScannerBusyRef.current = false;
+                        qrScannerBusyRef.current = false; // Release the busy flag
                     }
                 };
+
                 const onScanError = (errorMessage) => {
                     if (errorMessage.includes("NotAllowedError") || errorMessage.includes("Permission denied")) {
                         setQrScanError("Camera access denied. Please allow permissions.");
@@ -165,6 +190,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                         setQrScanError("Scanning error. Please check camera feed.");
                     }
                 };
+
                 try {
                     scannerInstance.render(onScanSuccess, onScanError);
                     qrCodeScannerRef.current = scannerInstance;
@@ -176,11 +202,13 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                 }
             }
         };
+
         const stopScanner = async () => {
             if (qrCodeScannerRef.current) {
                 try {
                     await qrCodeScannerRef.current.clear();
                 } catch (err) {
+                    // Ignore the 'removeChild' error during a re-render.
                     console.error("Failed to clear QR scanner gracefully:", err);
                 }
                 qrCodeScannerRef.current = null;
@@ -188,18 +216,22 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                 setQrScanError('');
             }
         };
+
         if (currentStep === 0) {
             startScanner();
         } else {
             stopScanner();
         }
+
         return () => {
             isMountedRef.current = false;
             stopScanner();
         };
     }, [currentStep, addNotification, db, appId]);
 
+
     // --- Face Recognition Logic ---
+
     const startCamera = useCallback(async () => {
         setFaceRecognitionStatus(prev => ({ ...prev, status: 'loading', message: 'Starting camera...' }));
         try {
@@ -231,44 +263,56 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
     }, []);
 
     const detectFaceAndLiveness = useCallback(async () => {
+        // Prevent from running if auth is already complete
         if (faceAuthComplete || !isModelsReadyRef.current || !videoRef.current || videoRef.current.paused || videoRef.current.ended || !faceMatcherRef.current) {
             return;
         }
+
         const displaySize = { width: videoRef.current.videoWidth, height: videoRef.current.videoHeight };
         if (canvasRef.current && displaySize.width > 0 && displaySize.height > 0) {
             faceapi.matchDimensions(canvasRef.current, displaySize);
             const context = canvasRef.current.getContext('2d');
             context.clearRect(0, 0, displaySize.width, displaySize.height);
+
             const detections = await faceapi.detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions())
                 .withFaceLandmarks()
                 .withFaceDescriptor();
+
             if (detections) {
                 const resizedDetections = faceapi.resizeResults(detections, displaySize);
                 faceapi.draw.drawDetections(canvasRef.current, resizedDetections);
                 faceapi.draw.drawFaceLandmarks(canvasRef.current, resizedDetections);
+
                 const bestMatch = faceMatcherRef.current.findBestMatch(resizedDetections.descriptor);
+
                 if (bestMatch.label === userId && bestMatch.distance < FACE_MATCH_THRESHOLD) {
                     const landmarks = resizedDetections.landmarks;
                     const leftEye = landmarks.getLeftEye();
                     const rightEye = landmarks.getRightEye();
+
                     const eyeLidsDistLeft = faceapi.euclideanDistance(leftEye[1], leftEye[5]) + faceapi.euclideanDistance(leftEye[2], leftEye[4]);
                     const eyeBrowDistLeft = faceapi.euclideanDistance(leftEye[0], leftEye[3]);
                     const leftEyeAspectRatio = eyeLidsDistLeft / (2 * eyeBrowDistLeft);
+
                     const eyeLidsDistRight = faceapi.euclideanDistance(rightEye[1], rightEye[5]) + faceapi.euclideanDistance(rightEye[2], rightEye[4]);
                     const eyeBrowDistRight = faceapi.euclideanDistance(rightEye[0], rightEye[3]);
                     const rightEyeAspectRatio = eyeLidsDistRight / (2 * eyeBrowDistRight);
+
                     const avgEyeAspectRatio = (leftEyeAspectRatio + rightEyeAspectRatio) / 2;
                     const eyesClosed = avgEyeAspectRatio < BLINK_THRESHOLD;
                     const currentTime = Date.now();
+
                     if (eyesClosed && (currentTime - lastBlinkTimeRef.current > 1000)) {
                         livenessBlinkCountRef.current += 1;
                         lastBlinkTimeRef.current = currentTime;
                         setFaceRecognitionStatus(prev => ({ ...prev, message: `Blink detected! (${livenessBlinkCountRef.current}/1)` }));
                     }
+
                     if (prevFaceDetectionRef.current) {
                         const prevNoseX = prevFaceDetectionRef.current.landmarks.getNose()[3].x;
                         const currNoseX = resizedDetections.landmarks.getNose()[3].x;
                         const deltaX = Math.abs(currNoseX - prevNoseX);
+
                         if (deltaX > HEAD_TURN_THRESHOLD * displaySize.width && (currentTime - lastHeadTurnTimeRef.current > 1000)) {
                             livenessHeadTurnCountRef.current += 1;
                             lastHeadTurnTimeRef.current = currentTime;
@@ -276,11 +320,13 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                         }
                     }
                     prevFaceDetectionRef.current = resizedDetections;
+
                     if (livenessBlinkCountRef.current >= 1 || livenessHeadTurnCountRef.current >= 1) {
+                        // FIXED: Set verification state in ref before updating UI state
+                        verificationStatesRef.current.faceVerified = true;
                         setFaceRecognitionStatus({ status: 'success', message: 'Face matched and liveness confirmed!' });
                         addNotification('Face authentication successful!', 'success');
                         setFaceAuthComplete(true);
-                        // CRUCIAL FIX: Clear the interval right here to prevent state overwrite
                         if (detectionIntervalRef.current) {
                             clearInterval(detectionIntervalRef.current);
                             detectionIntervalRef.current = null;
@@ -292,6 +338,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                     } else {
                         setFaceRecognitionStatus({ status: 'pending', message: 'Face matched. Please blink or slightly turn your head.' });
                     }
+
                 } else {
                     setFaceRecognitionStatus({ status: 'failed', message: 'Face not recognized. Please try again.' });
                     addNotification('Face not recognized. Please try again.', 'error');
@@ -305,32 +352,42 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
     const initializeFaceRecognition = useCallback(async () => {
         setOverallLoading(true);
         setFaceRecognitionStatus({ status: 'loading', message: 'Loading face models...' });
+
         if (!studentProfile || !studentProfile.faceDescriptor) {
             addNotification('Student face data not found. Please register your face first.', 'error');
             setFaceRecognitionStatus({ status: 'failed', message: 'Face data missing.' });
             setOverallLoading(false);
             return;
         }
+
         try {
             await faceapi.nets.tinyFaceDetector.loadFromUri('/models');
             await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
             await faceapi.nets.faceRecognitionNet.loadFromUri('/models');
+
             if (!faceapi.nets.tinyFaceDetector.isLoaded || !faceapi.nets.faceLandmark68Net.isLoaded || !faceapi.nets.faceRecognitionNet.isLoaded) {
                 throw new Error("Face-API models failed to load completely. Check manifest files.");
             }
             isModelsReadyRef.current = true;
+
             const savedDescriptor = JSON.parse(studentProfile.faceDescriptor);
+
             const labeledDescriptors = new faceapi.LabeledFaceDescriptors(
                 userId,
                 [new Float32Array(Object.values(savedDescriptor))]
             );
+
             faceMatcherRef.current = new faceapi.FaceMatcher([labeledDescriptors]);
+
             setFaceRecognitionStatus({ status: 'idle', message: 'Models and face data loaded. Ready for face scan.' });
             setFaceAuthComplete(false);
+
             await startCamera();
+
             detectionIntervalRef.current = setInterval(() => {
                 detectFaceAndLiveness();
             }, 100);
+
             setOverallLoading(false);
         } catch (error) {
             console.error("Error initializing face recognition:", error);
@@ -344,6 +401,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
     useEffect(() => {
         if (currentStep === 1) {
             initializeFaceRecognition();
+
             return () => {
                 if (detectionIntervalRef.current) {
                     clearInterval(detectionIntervalRef.current);
@@ -355,18 +413,22 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
         }
     }, [currentStep, initializeFaceRecognition, stopCamera]);
 
+
     // --- GPS Location Check Logic ---
     const checkGPSLocation = useCallback(() => {
         setOverallLoading(true);
         setLocationStatus({ status: 'loading', message: 'Checking your location...' });
+
         if (!qrScanResult || !sessionDetails || !sessionDetails.classroomLat || !sessionDetails.classroomLon) {
             setLocationStatus({ status: 'failed', message: 'Classroom coordinates not available from session data.' });
             addNotification('Cannot perform location check: missing classroom coordinates.', 'error');
             setOverallLoading(false);
             return;
         }
+
         const CLASSROOM_LAT = sessionDetails.classroomLat;
         const CLASSROOM_LON = sessionDetails.classroomLon;
+
         if ("geolocation" in navigator) {
             navigator.geolocation.getCurrentPosition(
                 (position) => {
@@ -374,10 +436,14 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                     const studentLon = position.coords.longitude;
                     setCurrentGeolocation({ latitude: studentLat, longitude: studentLon });
                     const distance = haversineDistance(CLASSROOM_LAT, CLASSROOM_LON, studentLat, studentLon);
+
                     console.log(`Classroom Coordinates: Lat=${CLASSROOM_LAT}, Lon=${CLASSROOM_LON}`);
                     console.log(`Student Coordinates: Lat=${studentLat}, Lon=${studentLon}`);
                     console.log(`Calculated Distance: ${distance} meters`);
+
                     if (distance <= GPS_RADIUS_METERS) {
+                        // FIXED: Set verification state in ref before updating UI state
+                        verificationStatesRef.current.locationVerified = true;
                         setLocationStatus({ status: 'success', message: `Within ${Math.round(distance)}m of classroom.` });
                         addNotification('Location check successful!', 'success');
                         setCurrentStep(3);
@@ -422,18 +488,24 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
             setOverallLoading(false);
             return;
         }
+
         try {
             const classroomIp = sessionDetails.classroomIp;
             const response = await fetch('https://api.ipify.org?format=json');
             const data = await response.json();
             const studentIp = data.ip;
+
             const classroomIpPrefix = classroomIp.split('.').slice(0, 2).join('.');
             const studentIpPrefix = studentIp.split('.').slice(0, 2).join('.');
+
             console.log(`Classroom IP: ${classroomIp}`);
             console.log(`Student IP: ${studentIp}`);
             console.log(`Classroom IP Prefix: ${classroomIpPrefix}`);
             console.log(`Student IP Prefix: ${studentIpPrefix}`);
+
             if (studentIpPrefix === classroomIpPrefix) {
+                // FIXED: Set verification state in ref before updating UI state
+                verificationStatesRef.current.ipVerified = true;
                 setIpStatus({ status: 'success', message: `IP prefix matched: ${studentIpPrefix}` });
                 addNotification('Network check successful!', 'success');
                 setCurrentStep(4);
@@ -461,15 +533,16 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
         setOverallLoading(true);
         setAttendanceStatus({ status: 'loading', message: 'Submitting attendance...' });
         
+        // FIXED: Use ref values instead of state values for verification checks
         if (
             !qrScanResult || 
             !sessionDetails || 
             !userId || 
             !idToken || 
             !currentGeolocation || 
-            faceRecognitionStatus.status !== 'success' || 
-            locationStatus.status !== 'success' || 
-            (sessionDetails.classroomIp && ipStatus.status !== 'success')
+            !verificationStatesRef.current.faceVerified || 
+            !verificationStatesRef.current.locationVerified || 
+            (sessionDetails.classroomIp && !verificationStatesRef.current.ipVerified)
         ) {
             console.error("Attendance submission failed. Prerequisites not met.", {
                 qrScanResult: !!qrScanResult,
@@ -477,10 +550,11 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                 userId: !!userId,
                 idToken: !!idToken,
                 currentGeolocation: !!currentGeolocation,
-                faceRecognitionStatus: faceRecognitionStatus.status,
-                locationStatus: locationStatus.status,
-                ipStatus: ipStatus.status,
+                faceVerified: verificationStatesRef.current.faceVerified,
+                locationVerified: verificationStatesRef.current.locationVerified,
+                ipVerified: verificationStatesRef.current.ipVerified,
             });
+
             setAttendanceStatus({ status: 'failed', message: 'One or more pre-requisite checks failed. Cannot submit.' });
             addNotification('Pre-requisite checks failed. Cannot mark attendance.', 'error');
             setOverallLoading(false);
@@ -499,6 +573,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
             className: qrScanResult.className,
             teacherId: qrScanResult.teacherId,
         });
+
         try {
             const response = await fetch(`${API_BASE_URL}/attendance/mark`, {
                 method: 'POST',
@@ -519,8 +594,10 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                     teacherId: qrScanResult.teacherId,
                 })
             });
+
             const result = await response.json();
             console.log("StudentDashboardHome: Backend response:", result);
+
             if (response.ok) {
                 setAttendanceStatus({ status: 'success', message: result.message });
                 addNotification(result.message, 'success');
@@ -536,7 +613,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
         } finally {
             setOverallLoading(false);
         }
-    }, [addNotification, qrScanResult, sessionDetails, userId, idToken, currentGeolocation, faceRecognitionStatus.status, locationStatus.status, ipStatus.status]);
+    }, [addNotification, qrScanResult, sessionDetails, userId, idToken, currentGeolocation, ipStatus.message]);
 
     useEffect(() => {
         if (currentStep === 4) {
@@ -575,6 +652,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                 iconColor = 'text-gray-400';
                 break;
         }
+
         return (
             <motion.div
                 className={`flex items-center p-4 rounded-xl shadow-md ${bgColor} ${borderColor} border-l-4 mb-3`}
@@ -633,11 +711,15 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
         );
     };
 
+
     return (
         <div className="min-h-full bg-gradient-to-br from-indigo-50 to-purple-100 flex items-center justify-center p-4 font-inter">
-            <div className="bg-white rounded-3xl shadow-2xl p-4 sm:p-8 w-full max-w-4xl transform transition-all duration-500 ease-in-out scale-95 md:scale-100 relative">
-                <h2 className="text-2xl sm:text-3xl font-bold text-center text-indigo-800 mb-6 sm:mb-8">Mark Your Attendance</h2>
+            <div className="bg-white rounded-3xl shadow-2xl p-4 sm:p-8 w-full max-w-4xl transform transition-all duration-500 ease-in-out scale-95 md:scale-100 relative"> {/* Adjusted padding */}
+                <h2 className="text-2xl sm:text-3xl font-bold text-center text-indigo-800 mb-6 sm:mb-8">Mark Your Attendance</h2> {/* Adjusted font size */}
+
                 <ProgressBar steps={steps} currentStep={currentStep} />
+
+                {/* Overall Loading Spinner as an overlay */}
                 <AnimatePresence>
                     {overallLoading && (
                         <motion.div
@@ -652,6 +734,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                         </motion.div>
                     )}
                 </AnimatePresence>
+
                 <AnimatePresence mode="wait">
                     {currentStep === 0 && (
                         <motion.div
@@ -681,6 +764,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                             />
                         </motion.div>
                     )}
+
                     {currentStep === 1 && (
                         <motion.div
                             key="face-auth"
@@ -712,6 +796,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                                         setFaceRecognitionStatus({ status: 'idle', message: '' });
                                         livenessBlinkCountRef.current = 0;
                                         livenessHeadTurnCountRef.current = 0;
+                                        verificationStatesRef.current.faceVerified = false;
                                         initializeFaceRecognition();
                                     }}
                                     className="mt-4 px-6 py-2 bg-indigo-600 text-white rounded-lg shadow-md hover:bg-indigo-700 transition-colors text-sm sm:text-base"
@@ -721,6 +806,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                             )}
                         </motion.div>
                     )}
+
                     {currentStep === 2 && (
                         <motion.div
                             key="gps-check"
@@ -741,7 +827,10 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                             />
                             {locationStatus.status === 'failed' && (
                                 <button
-                                    onClick={checkGPSLocation}
+                                    onClick={() => {
+                                        verificationStatesRef.current.locationVerified = false;
+                                        checkGPSLocation();
+                                    }}
                                     className="mt-4 px-6 py-2 bg-indigo-600 text-white rounded-lg shadow-md hover:bg-indigo-700 transition-colors text-sm sm:text-base"
                                 >
                                     Retry Location Check
@@ -749,6 +838,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                             )}
                         </motion.div>
                     )}
+
                     {currentStep === 3 && (
                         <motion.div
                             key="ip-check"
@@ -769,7 +859,10 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                             />
                             {ipStatus.status === 'failed' && (
                                 <button
-                                    onClick={checkPublicIP}
+                                    onClick={() => {
+                                        verificationStatesRef.current.ipVerified = false;
+                                        checkPublicIP();
+                                    }}
                                     className="mt-4 px-6 py-2 bg-indigo-600 text-white rounded-lg shadow-md hover:bg-indigo-700 transition-colors text-sm sm:text-base"
                                 >
                                     Retry IP Check
@@ -777,6 +870,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                             )}
                         </motion.div>
                     )}
+
                     {currentStep === 4 && (
                         <motion.div
                             key="submit-attendance"
@@ -797,6 +891,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                             />
                         </motion.div>
                     )}
+
                     {currentStep === 5 && (
                         <motion.div
                             key="attendance-complete"
@@ -821,6 +916,12 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                                     setQrScannerReady(false);
                                     setSessionDetails(null);
                                     setFaceAuthComplete(false);
+                                    // FIXED: Reset verification states
+                                    verificationStatesRef.current = {
+                                        faceVerified: false,
+                                        locationVerified: false,
+                                        ipVerified: false
+                                    };
                                 }}
                                 className="px-6 py-3 sm:px-8 sm:py-3 bg-indigo-600 text-white rounded-full shadow-lg hover:bg-indigo-700 transition-colors transform hover:scale-105 text-sm sm:text-base"
                             >
