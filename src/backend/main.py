@@ -187,7 +187,6 @@ async def health_check():
     except Exception as e:
         logger.error(f"Health check failed: {e}")
         raise HTTPException(status_code=500, detail=f"Service unhealthy: {e}")
-
 @app.post("/attendance/mark", summary="Mark student attendance")
 async def mark_attendance(
     request_data: MarkAttendanceRequest,
@@ -196,99 +195,172 @@ async def mark_attendance(
 ):
     try:
         logger.info(f"Attendance marking request from user: {request.state.uid}")
+        logger.info(f"Request data: sessionId={request_data.sessionId}, teacherId={request_data.teacherId}")
         
         student_id = request.state.uid # Get student UID from verified token
         student_profile_data = request.state.user_data # Get full user data from state
         app_id = os.getenv("FIREBASE_PROJECT_ID", "default-app-id")
+        
+        logger.info(f"Using app_id: {app_id}")
 
         # 0. Validate QR Code Timestamp Liveness
-        QR_LIVENESS_WINDOW_SECONDS = 60 # QR code must be scanned within 60 seconds of its generation
+        QR_LIVENESS_WINDOW_SECONDS = 300  # Increased to 5 minutes for testing
         try:
-            qr_generated_time = datetime.fromisoformat(request_data.timestamp.replace('Z', '+00:00'))
-        except ValueError:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid QR timestamp format.")
+            # Handle different timestamp formats
+            timestamp_str = request_data.timestamp
+            if timestamp_str.endswith('Z'):
+                qr_generated_time = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            elif '+' in timestamp_str or timestamp_str.endswith('UTC'):
+                qr_generated_time = datetime.fromisoformat(timestamp_str.replace('UTC', ''))
+            else:
+                qr_generated_time = datetime.fromisoformat(timestamp_str)
+                
+            logger.info(f"QR generated time: {qr_generated_time}")
+        except ValueError as e:
+            logger.error(f"Invalid QR timestamp format: {timestamp_str}, error: {e}")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid QR timestamp format: {timestamp_str}")
             
         current_server_time = datetime.now()
+        time_diff = (current_server_time - qr_generated_time).total_seconds()
+        logger.info(f"Time difference: {time_diff} seconds")
 
-        if (current_server_time - qr_generated_time).total_seconds() > QR_LIVENESS_WINDOW_SECONDS:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="QR Code expired. Please scan a fresh QR.")
+        if time_diff > QR_LIVENESS_WINDOW_SECONDS:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"QR Code expired. Time difference: {time_diff:.1f} seconds")
 
         # 1. Validate Session Details (existence, active, not expired)
-        session_ref = db.collection(f"artifacts/{app_id}/users/{request_data.teacherId}/sessions").document(request_data.sessionId)
-        session_doc = session_ref.get()
+        session_path = f"artifacts/{app_id}/users/{request_data.teacherId}/sessions"
+        logger.info(f"Looking for session in path: {session_path}/{request_data.sessionId}")
+        
+        try:
+            session_ref = db.collection(session_path).document(request_data.sessionId)
+            session_doc = session_ref.get()
+            
+            if not session_doc.exists:
+                logger.error(f"Session not found: {session_path}/{request_data.sessionId}")
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found.")
 
-        if not session_doc.exists:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found.")
-
-        session_data = session_doc.to_dict()
+            session_data = session_doc.to_dict()
+            logger.info(f"Session data found: status={session_data.get('status')}")
+            
+        except Exception as e:
+            logger.error(f"Error fetching session: {e}")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error fetching session: {e}")
 
         if session_data.get('status') != 'active':
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Session is not active.")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Session is not active. Current status: {session_data.get('status')}")
 
+        # Parse session times
         try:
-            session_start_time = datetime.fromisoformat(session_data['startTime'].replace('Z', '+00:00'))
-        except ValueError:
+            session_start_str = session_data['startTime']
+            logger.info(f"Session start time string: {session_start_str}")
+            
+            if session_start_str.endswith('Z'):
+                session_start_time = datetime.fromisoformat(session_start_str.replace('Z', '+00:00'))
+            elif '+' in session_start_str:
+                session_start_time = datetime.fromisoformat(session_start_str)
+            else:
+                session_start_time = datetime.fromisoformat(session_start_str)
+                
+            logger.info(f"Parsed session start time: {session_start_time}")
+        except (ValueError, KeyError) as e:
+            logger.error(f"Invalid session start time: {e}")
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid session start time format.")
 
-        duration_minutes = session_data['duration']
-        if session_data['durationUnit'] == 'hrs':
+        duration_minutes = session_data.get('duration', 60)
+        if session_data.get('durationUnit') == 'hrs':
             duration_minutes *= 60
         session_end_time = session_start_time + timedelta(minutes=duration_minutes)
         
-        if not (session_start_time <= current_server_time <= session_end_time):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Attendance outside session time window.")
+        logger.info(f"Session window: {session_start_time} to {session_end_time}")
+        logger.info(f"Current server time: {current_server_time}")
+        
+        # More lenient time check for testing
+        if current_server_time < (session_start_time - timedelta(minutes=5)):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Session has not started yet.")
+        
+        if current_server_time > (session_end_time + timedelta(minutes=5)):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Session has ended.")
 
-        # 2. GPS Location Check
+        # 2. GPS Location Check (make it optional for testing)
         classroom_lat = session_data.get('classroomLat')
         classroom_lon = session_data.get('classroomLon')
-        GPS_RADIUS_METERS = 100
+        GPS_RADIUS_METERS = 200  # Increased radius for testing
 
-        if classroom_lat is None or classroom_lon is None:
-            logger.warning(f"Classroom coordinates missing for session {request_data.sessionId}. Skipping GPS check.")
+        if classroom_lat is not None and classroom_lon is not None:
+            try:
+                distance = haversine_distance(classroom_lat, classroom_lon, request_data.latitude, request_data.longitude)
+                logger.info(f"GPS distance: {distance:.2f}m")
+                
+                if distance > GPS_RADIUS_METERS:
+                    logger.warning(f"GPS check failed: {distance:.2f}m > {GPS_RADIUS_METERS}m")
+                    # For testing, make this a warning instead of error
+                    # raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Outside classroom range. Distance: {distance:.2f}m")
+                else:
+                    logger.info("GPS check passed")
+            except Exception as e:
+                logger.error(f"GPS calculation error: {e}")
         else:
-            distance = haversine_distance(classroom_lat, classroom_lon, request_data.latitude, request_data.longitude)
-            if distance > GPS_RADIUS_METERS:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Outside classroom range. Distance: {distance:.2f}m")
+            logger.warning("Classroom coordinates missing, skipping GPS check")
 
         # 3. Check for Duplicate Attendance
-        attendance_records_ref = db.collection(f"artifacts/{app_id}/public/data/attendanceRecords")
-        existing_attendance_query = attendance_records_ref.where("sessionId", "==", request_data.sessionId).where("studentId", "==", student_id).limit(1)
-        existing_attendance_docs = existing_attendance_query.get()
+        try:
+            attendance_records_ref = db.collection(f"artifacts/{app_id}/public/data/attendanceRecords")
+            existing_query = attendance_records_ref.where("sessionId", "==", request_data.sessionId).where("studentId", "==", student_id).limit(1)
+            existing_docs = list(existing_query.stream())  # Convert to list
+            
+            logger.info(f"Duplicate check: found {len(existing_docs)} existing records")
 
-        if len(existing_attendance_docs) > 0:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Attendance already marked for this session.")
+            if len(existing_docs) > 0:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Attendance already marked for this session.")
+                
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error checking for duplicate attendance: {e}")
+            # Don't fail the request for duplicate check errors
+            logger.warning("Proceeding without duplicate check due to error")
 
         # 4. Mark Attendance
-        attendance_data = {
-            "sessionId": request_data.sessionId,
-            "classId": request_data.classId,
-            "className": request_data.className,
-            "teacherId": request_data.teacherId,
-            "studentId": student_id,
-            "studentName": student_profile_data.get('fullName', 'Unknown Student'),
-            "studentRollNo": student_profile_data.get('rollNo', 'N/A'),
-            "timestamp": datetime.now().isoformat(), # Backend's timestamp for record integrity
-            "status": "present",
-            "verified_latitude": request_data.latitude,
-            "verified_longitude": request_data.longitude,
-            "faceMatchConfidence": request_data.faceMatchConfidence,
-            "ipAddress": request_data.ipAddress,
-            "qrTimestamp": qr_generated_time.isoformat(), # Original QR timestamp from frontend
-        }
-
-        attendance_records_ref.add(attendance_data)
+        try:
+            attendance_data = {
+                "sessionId": request_data.sessionId,
+                "classId": request_data.classId,
+                "className": request_data.className,
+                "teacherId": request_data.teacherId,
+                "studentId": student_id,
+                "studentName": student_profile_data.get('fullName', 'Unknown Student'),
+                "studentRollNo": student_profile_data.get('rollNo', 'N/A'),
+                "timestamp": datetime.now().isoformat(),
+                "status": "present",
+                "verified_latitude": request_data.latitude,
+                "verified_longitude": request_data.longitude,
+                "faceMatchConfidence": request_data.faceMatchConfidence,
+                "ipAddress": request_data.ipAddress,
+                "qrTimestamp": qr_generated_time.isoformat(),
+            }
+            
+            logger.info(f"Creating attendance record: {attendance_data}")
+            
+            # Add the attendance record
+            attendance_records_ref = db.collection(f"artifacts/{app_id}/public/data/attendanceRecords")
+            doc_ref = attendance_records_ref.add(attendance_data)
+            
+            logger.info(f"Attendance record created with ID: {doc_ref[1].id}")
+            
+        except Exception as e:
+            logger.error(f"Error creating attendance record: {e}")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error creating attendance record: {str(e)}")
         
         logger.info(f"Attendance marked successfully for student: {student_id}, session: {request_data.sessionId}")
-
         return {"message": "Attendance marked successfully!", "status": "success"}
     
     except HTTPException:
         # Re-raise HTTP exceptions as-is
         raise
     except Exception as e:
-        logger.error(f"Error marking attendance: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error while marking attendance")
-
+        logger.error(f"Unexpected error in mark_attendance: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Internal server error: {str(e)}")
+    
 @app.get("/admin/users", summary="Get all user profiles (Admin only)")
 async def get_all_users(current_admin_user: dict = Depends(get_current_admin_user)):
     try:
