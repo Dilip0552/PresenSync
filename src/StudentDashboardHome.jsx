@@ -526,7 +526,8 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
     const markAttendance = useCallback(async () => {
         setOverallLoading(true);
         setAttendanceStatus({ status: 'loading', message: 'Submitting attendance...' });
-
+        
+        // Fix: Check if ipStatus.status is 'success' instead of using ipStatus.message
         if (!qrScanResult || !sessionDetails || !userId || !idToken || !currentGeolocation || faceRecognitionStatus.status !== 'success' || locationStatus.status !== 'success' || ipStatus.status !== 'success') {
             setAttendanceStatus({ status: 'failed', message: 'One or more pre-requisite checks failed. Cannot submit.' });
             addNotification('Pre-requisite checks failed. Cannot mark attendance.', 'error');
@@ -586,7 +587,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
         } finally {
             setOverallLoading(false);
         }
-    }, [addNotification, qrScanResult, sessionDetails, userId, idToken, currentGeolocation, faceRecognitionStatus.status, locationStatus.status, ipStatus.message]);
+    }, [addNotification, qrScanResult, sessionDetails, userId, idToken, currentGeolocation, faceRecognitionStatus.status, locationStatus.status, ipStatus.status]);
 
     useEffect(() => {
         if (currentStep === 4) {
