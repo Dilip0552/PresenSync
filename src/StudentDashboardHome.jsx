@@ -530,8 +530,28 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
         // This is a temporary bypass for the IP check for testing purposes.
         // The check is now `ipStatus.status !== 'failed'` instead of `ipStatus.status !== 'success'`.
         // This allows the flow to proceed even if the IP check fails.
+        // FINAL FIX: Explicitly check for 'success' status for all prerequisites.
+        if (
+            !qrScanResult || 
+            !sessionDetails || 
+            !userId || 
+            !idToken || 
+            !currentGeolocation || 
+            faceRecognitionStatus.status !== 'success' || 
+            locationStatus.status !== 'success' || 
+            ipStatus.status !== 'success'
+        ) {
+            console.error("Attendance submission failed. Prerequisites not met.", {
+                qrScanResult: !!qrScanResult,
+                sessionDetails: !!sessionDetails,
+                userId: !!userId,
+                idToken: !!idToken,
+                currentGeolocation: !!currentGeolocation,
+                faceRecognitionStatus: faceRecognitionStatus.status,
+                locationStatus: locationStatus.status,
+                ipStatus: ipStatus.status,
+            });
 
-        if (!qrScanResult || !sessionDetails || !userId || !idToken || !currentGeolocation || faceRecognitionStatus.status !== 'success' || locationStatus.status !== 'success' || ipStatus.status === 'failed') {
             setAttendanceStatus({ status: 'failed', message: 'One or more pre-requisite checks failed. Cannot submit.' });
             addNotification('Pre-requisite checks failed. Cannot mark attendance.', 'error');
             setOverallLoading(false);
