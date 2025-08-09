@@ -52,7 +52,8 @@ origins = [
     "http://127.0.0.1:5173",
     "https://presensync.vercel.app", # Vercel URL
     "https://*.vercel.app", # Allow all Vercel subdomains for preview deployments
-    "https://presensync.vercel.app/student/dashboard"
+    "https://presensync.vercel.app/student/dashboard",
+    "https://presensync-dilip0552s-projects.vercel.app"
 ]
 
 app.add_middleware(
