@@ -127,11 +127,18 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                             if (!sessionId || !timestamp || !classId || !teacherId) {
                                 throw new Error('Invalid QR Code data structure!');
                             }
+                            
+                            // Log the details for debugging purposes
+                            console.log("QR Data:", qrData);
+                            const sessionPath = `artifacts/${appId}/users/${teacherId}/sessions/${sessionId}`;
+                            console.log("Attempting to fetch session from path:", sessionPath);
 
                             const sessionDocRef = doc(db, `artifacts/${appId}/users/${teacherId}/sessions`, sessionId);
                             const sessionSnap = await getDoc(sessionDocRef);
 
                             if (!sessionSnap.exists()) {
+                                // Log the error specifically for debugging
+                                console.error("Error fetching session: Session document does not exist at path:", sessionPath);
                                 throw new Error('Session not found or invalid QR code!');
                             }
 
