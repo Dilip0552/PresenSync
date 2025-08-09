@@ -317,7 +317,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                     if (livenessBlinkCountRef.current >= 1 || livenessHeadTurnCountRef.current >= 1) {
                         setFaceRecognitionStatus({ status: 'success', message: 'Face matched and liveness confirmed!' });
                         addNotification('Face authentication successful!', 'success');
-                        setFaceAuthComplete(true); // Flag to stop further detection
+                        setFaceAuthComplete(true);
                         if (detectionIntervalRef.current) {
                             clearInterval(detectionIntervalRef.current);
                             detectionIntervalRef.current = null;
@@ -371,7 +371,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
             faceMatcherRef.current = new faceapi.FaceMatcher([labeledDescriptors]);
 
             setFaceRecognitionStatus({ status: 'idle', message: 'Models and face data loaded. Ready for face scan.' });
-            setFaceAuthComplete(false); // Reset flag on initialization
+            setFaceAuthComplete(false);
 
             await startCamera();
 
