@@ -51,9 +51,11 @@ origins = [
     "http://localhost:5173",  # Your React frontend local development server
     "http://127.0.0.1:5173",
     "https://presensync.vercel.app", # Vercel URL
+    "https://presensync.vercel.app/",
     "https://*.vercel.app", # Allow all Vercel subdomains for preview deployments
     "https://presensync.vercel.app/student/dashboard",
-    "https://presensync-dilip0552s-projects.vercel.app"
+    "https://presensync-dilip0552s-projects.vercel.app/",
+    "https://presensync-dilip0552s-projects.vercel.app/student/dashboard"
 ]
 
 app.add_middleware(
