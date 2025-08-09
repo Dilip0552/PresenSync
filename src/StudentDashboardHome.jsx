@@ -47,7 +47,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
     const [sessionDetails, setSessionDetails] = useState(null); // Full session details from Firestore (fetched after QR scan)
     const [currentGeolocation, setCurrentGeolocation] = useState(null); // Store actual student geolocation
     const [qrScanError, setQrScanError] = useState(''); // New state for QR scan specific error messages
-    const [faceAuthComplete, setFaceAuthComplete] = useState(false); // Track if face auth is successful
+    const [faceAuthComplete, setFaceAuthComplete] = useState(false);
 
     const videoRef = useRef();
     const canvasRef = useRef();
@@ -202,7 +202,6 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                     await qrCodeScannerRef.current.clear();
                 } catch (err) {
                     // Ignore the 'removeChild' error during a re-render.
-                    // This error indicates the scanner's UI has already been removed.
                     console.error("Failed to clear QR scanner gracefully:", err);
                 }
                 qrCodeScannerRef.current = null;
@@ -214,11 +213,9 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
         if (currentStep === 0) {
             startScanner();
         } else {
-            // Stop the scanner immediately when the step changes
             stopScanner();
         }
 
-        // Cleanup function for the useEffect hook
         return () => {
             isMountedRef.current = false;
             stopScanner();
@@ -259,6 +256,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
     }, []);
 
     const detectFaceAndLiveness = useCallback(async () => {
+        // Prevent from running if auth is already complete
         if (faceAuthComplete || !isModelsReadyRef.current || !videoRef.current || videoRef.current.paused || videoRef.current.ended || !faceMatcherRef.current) {
             return;
         }
@@ -319,7 +317,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
                     if (livenessBlinkCountRef.current >= 1 || livenessHeadTurnCountRef.current >= 1) {
                         setFaceRecognitionStatus({ status: 'success', message: 'Face matched and liveness confirmed!' });
                         addNotification('Face authentication successful!', 'success');
-                        setFaceAuthComplete(true);
+                        setFaceAuthComplete(true); // Flag to stop further detection
                         if (detectionIntervalRef.current) {
                             clearInterval(detectionIntervalRef.current);
                             detectionIntervalRef.current = null;
@@ -373,7 +371,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
             faceMatcherRef.current = new faceapi.FaceMatcher([labeledDescriptors]);
 
             setFaceRecognitionStatus({ status: 'idle', message: 'Models and face data loaded. Ready for face scan.' });
-            setFaceAuthComplete(false);
+            setFaceAuthComplete(false); // Reset flag on initialization
 
             await startCamera();
 
