@@ -529,91 +529,180 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
     }, [currentStep, checkPublicIP]);
 
     // --- Attendance Submission Logic (to Backend API) ---
-    const markAttendance = useCallback(async () => {
-        setOverallLoading(true);
-        setAttendanceStatus({ status: 'loading', message: 'Submitting attendance...' });
-        
-        // FIXED: Use ref values instead of state values for verification checks
-        if (
-            !qrScanResult || 
-            !sessionDetails || 
-            !userId || 
-            !idToken || 
-            !currentGeolocation || 
-            !verificationStatesRef.current.faceVerified || 
-            !verificationStatesRef.current.locationVerified || 
-            (sessionDetails.classroomIp && !verificationStatesRef.current.ipVerified)
-        ) {
-            console.error("Attendance submission failed. Prerequisites not met.", {
-                qrScanResult: !!qrScanResult,
-                sessionDetails: !!sessionDetails,
-                userId: !!userId,
-                idToken: !!idToken,
-                currentGeolocation: !!currentGeolocation,
-                faceVerified: verificationStatesRef.current.faceVerified,
-                locationVerified: verificationStatesRef.current.locationVerified,
-                ipVerified: verificationStatesRef.current.ipVerified,
-            });
+// Enhanced markAttendance function with comprehensive debugging and error handling
 
-            setAttendanceStatus({ status: 'failed', message: 'One or more pre-requisite checks failed. Cannot submit.' });
-            addNotification('Pre-requisite checks failed. Cannot mark attendance.', 'error');
-            setOverallLoading(false);
-            return;
-        }
-        
-        console.log("StudentDashboardHome: Sending attendance data to backend:", {
-            sessionId: qrScanResult.sessionId,
-            studentId: userId,
-            timestamp: new Date().toISOString(),
-            latitude: currentGeolocation.latitude,
-            longitude: currentGeolocation.longitude,
-            faceMatchConfidence: FACE_MATCH_THRESHOLD,
-            ipAddress: ipStatus.message.includes('IP matched') ? ipStatus.message.split(': ')[1] : 'N/A',
-            classId: qrScanResult.classId,
-            className: qrScanResult.className,
-            teacherId: qrScanResult.teacherId,
+const markAttendance = useCallback(async () => {
+    setOverallLoading(true);
+    setAttendanceStatus({ status: 'loading', message: 'Submitting attendance...' });
+    
+    // FIXED: Use ref values instead of state values for verification checks
+    if (
+        !qrScanResult || 
+        !sessionDetails || 
+        !userId || 
+        !idToken || 
+        !currentGeolocation || 
+        !verificationStatesRef.current.faceVerified || 
+        !verificationStatesRef.current.locationVerified || 
+        (sessionDetails.classroomIp && !verificationStatesRef.current.ipVerified)
+    ) {
+        console.error("Attendance submission failed. Prerequisites not met.", {
+            qrScanResult: !!qrScanResult,
+            sessionDetails: !!sessionDetails,
+            userId: !!userId,
+            idToken: !!idToken,
+            currentGeolocation: !!currentGeolocation,
+            faceVerified: verificationStatesRef.current.faceVerified,
+            locationVerified: verificationStatesRef.current.locationVerified,
+            ipVerified: verificationStatesRef.current.ipVerified,
         });
 
+        setAttendanceStatus({ status: 'failed', message: 'One or more pre-requisite checks failed. Cannot submit.' });
+        addNotification('Pre-requisite checks failed. Cannot mark attendance.', 'error');
+        setOverallLoading(false);
+        return;
+    }
+    
+    const attendanceData = {
+        sessionId: qrScanResult.sessionId,
+        studentId: userId,
+        timestamp: new Date().toISOString(),
+        latitude: currentGeolocation.latitude,
+        longitude: currentGeolocation.longitude,
+        faceMatchConfidence: FACE_MATCH_THRESHOLD,
+        ipAddress: ipStatus.message.includes('matched') ? ipStatus.message.split(': ')[1] : 'N/A',
+        classId: qrScanResult.classId,
+        className: qrScanResult.className,
+        teacherId: qrScanResult.teacherId,
+    };
+
+    console.log("StudentDashboardHome: Sending attendance data to backend:", attendanceData);
+    console.log("API_BASE_URL:", API_BASE_URL);
+    console.log("idToken (first 50 chars):", idToken?.substring(0, 50) + "...");
+
+    try {
+        // Step 1: Test if backend is reachable
+        console.log("Testing backend connectivity...");
+        setAttendanceStatus({ status: 'loading', message: 'Testing server connection...' });
+        
         try {
-            const response = await fetch(`${API_BASE_URL}/attendance/mark`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${idToken}`
-                },
-                body: JSON.stringify({
-                    sessionId: qrScanResult.sessionId,
-                    studentId: userId,
-                    timestamp: new Date().toISOString(),
-                    latitude: currentGeolocation.latitude,
-                    longitude: currentGeolocation.longitude,
-                    faceMatchConfidence: FACE_MATCH_THRESHOLD,
-                    ipAddress: ipStatus.message.includes('IP matched') ? ipStatus.message.split(': ')[1] : 'N/A',
-                    classId: qrScanResult.classId,
-                    className: qrScanResult.className,
-                    teacherId: qrScanResult.teacherId,
-                })
+            const healthResponse = await fetch(`${API_BASE_URL}/`, {
+                method: 'GET',
+                signal: AbortSignal.timeout(10000) // 10 second timeout
             });
-
-            const result = await response.json();
-            console.log("StudentDashboardHome: Backend response:", result);
-
-            if (response.ok) {
-                setAttendanceStatus({ status: 'success', message: result.message });
-                addNotification(result.message, 'success');
-                setCurrentStep(5);
-            } else {
-                setAttendanceStatus({ status: 'failed', message: result.detail || 'Failed to submit attendance.' });
-                addNotification(result.detail || 'Failed to submit attendance.', 'error');
+            console.log("Backend health check response:", healthResponse.status, healthResponse.statusText);
+            
+            if (!healthResponse.ok) {
+                throw new Error(`Backend server returned ${healthResponse.status}: ${healthResponse.statusText}`);
             }
-        } catch (error) {
-            console.error("StudentDashboardHome: Error submitting attendance to backend:", error);
-            setAttendanceStatus({ status: 'failed', message: 'Network error or unable to reach backend.' });
-            addNotification('Network error or unable to reach backend.', 'error');
-        } finally {
-            setOverallLoading(false);
+            
+            const healthData = await healthResponse.json();
+            console.log("Backend health data:", healthData);
+            
+        } catch (healthError) {
+            console.error("Backend health check failed:", healthError);
+            
+            if (healthError.name === 'TimeoutError') {
+                throw new Error('Backend server timeout - please check if the server is running');
+            } else if (healthError.message.includes('fetch')) {
+                throw new Error('Cannot reach backend server - please check your internet connection');
+            } else {
+                throw new Error(`Backend connectivity issue: ${healthError.message}`);
+            }
         }
-    }, [addNotification, qrScanResult, sessionDetails, userId, idToken, currentGeolocation, ipStatus.message]);
+
+        // Step 2: Attempt attendance submission
+        console.log("Submitting attendance...");
+        setAttendanceStatus({ status: 'loading', message: 'Submitting attendance data...' });
+        
+        const response = await fetch(`${API_BASE_URL}/attendance/mark`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${idToken}`,
+                'Accept': 'application/json',
+            },
+            body: JSON.stringify(attendanceData),
+            signal: AbortSignal.timeout(15000) // 15 second timeout
+        });
+
+        console.log("Attendance submission response status:", response.status);
+        console.log("Response headers:", Object.fromEntries(response.headers.entries()));
+
+        const result = await response.json();
+        console.log("StudentDashboardHome: Backend response:", result);
+
+        if (response.ok) {
+            setAttendanceStatus({ status: 'success', message: result.message });
+            addNotification(result.message, 'success');
+            setCurrentStep(5);
+        } else {
+            // Handle different HTTP error codes
+            let errorMessage = result.detail || 'Failed to submit attendance.';
+            
+            switch (response.status) {
+                case 400:
+                    errorMessage = `Bad Request: ${result.detail || 'Invalid attendance data'}`;
+                    break;
+                case 401:
+                    errorMessage = 'Authentication failed - please log in again';
+                    break;
+                case 403:
+                    errorMessage = 'Access denied - insufficient permissions';
+                    break;
+                case 404:
+                    errorMessage = 'Attendance endpoint not found';
+                    break;
+                case 409:
+                    errorMessage = result.detail || 'Attendance already marked for this session';
+                    break;
+                case 422:
+                    errorMessage = `Validation Error: ${result.detail || 'Invalid data format'}`;
+                    break;
+                case 500:
+                    errorMessage = 'Server error - please try again later';
+                    break;
+                default:
+                    errorMessage = `Server returned ${response.status}: ${result.detail || response.statusText}`;
+            }
+            
+            setAttendanceStatus({ status: 'failed', message: errorMessage });
+            addNotification(errorMessage, 'error');
+        }
+    } catch (error) {
+        console.error("StudentDashboardHome: Error submitting attendance to backend:", error);
+        
+        let userFriendlyMessage;
+        
+        if (error.name === 'TimeoutError') {
+            userFriendlyMessage = 'Request timeout - server is taking too long to respond';
+        } else if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+            userFriendlyMessage = 'Network error - please check your internet connection and try again';
+        } else if (error.message.includes('CORS')) {
+            userFriendlyMessage = 'Server configuration error - please contact support';
+        } else if (error.message.includes('Cannot reach backend')) {
+            userFriendlyMessage = error.message;
+        } else if (error.message.includes('Backend server timeout')) {
+            userFriendlyMessage = error.message;
+        } else {
+            userFriendlyMessage = `Connection error: ${error.message}`;
+        }
+        
+        setAttendanceStatus({ status: 'failed', message: userFriendlyMessage });
+        addNotification(userFriendlyMessage, 'error');
+        
+        // Additional debugging info
+        console.log("Error details:", {
+            name: error.name,
+            message: error.message,
+            stack: error.stack,
+            cause: error.cause
+        });
+        
+    } finally {
+        setOverallLoading(false);
+    }
+}, [addNotification, qrScanResult, sessionDetails, userId, idToken, currentGeolocation, ipStatus.message]);
 
     useEffect(() => {
         if (currentStep === 4) {

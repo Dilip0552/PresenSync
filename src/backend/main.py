@@ -8,10 +8,16 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+import logging
 
 import firebase_admin
 from firebase_admin import credentials, auth, firestore
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Load environment variables from .env file
 load_dotenv()
@@ -33,10 +39,10 @@ try:
 
     firebase_admin.initialize_app(cred)
     db = firestore.client()
-    print("Firebase Admin SDK initialized successfully.")
+    logger.info("Firebase Admin SDK initialized successfully.")
 except Exception as e:
-    print(f"Error initializing Firebase Admin SDK: {e}")
-    print("Ensure FIREBASE_SERVICE_ACCOUNT_KEY_PATH in .env (local) or FIREBASE_SERVICE_ACCOUNT_JSON (Render env var) is set correctly.")
+    logger.error(f"Error initializing Firebase Admin SDK: {e}")
+    logger.error("Ensure FIREBASE_SERVICE_ACCOUNT_KEY_PATH in .env (local) or FIREBASE_SERVICE_ACCOUNT_JSON (Render env var) is set correctly.")
     exit(1) # Exit if Firebase SDK cannot be initialized
 
 app = FastAPI(
@@ -45,26 +51,42 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# --- CORS Middleware ---
-# Adjust origins based on your frontend's URL
+# --- Enhanced CORS Middleware ---
+# More comprehensive origins list
 origins = [
+    "http://localhost:3000",
     "http://localhost:5173",  # Your React frontend local development server
     "http://127.0.0.1:5173",
     "https://presensync.vercel.app", # Vercel URL
     "https://presensync.vercel.app/",
     "https://*.vercel.app", # Allow all Vercel subdomains for preview deployments
     "https://presensync.vercel.app/student/dashboard",
+    "https://presensync-dilip0552s-projects.vercel.app",
     "https://presensync-dilip0552s-projects.vercel.app/",
-    "https://presensync-dilip0552s-projects.vercel.app/student/dashboard"
+    "https://presensync-dilip0552s-projects.vercel.app/student/dashboard",
+    # Add any other frontend URLs you might have
+    "https://*.presensync.vercel.app",
+    "https://presensync-*.vercel.app"
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=3600,  # Cache preflight requests for 1 hour
 )
+
+# Add a global exception handler
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Global exception: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error occurred"}
+    )
 
 # --- Pydantic Models for Request Body Validation ---
 class MarkAttendanceRequest(BaseModel):
@@ -110,10 +132,11 @@ async def get_current_user_from_token(request: Request, id_token: str = Depends(
         request.state.role = user_data.get('role', 'student') # Store role in request state
         request.state.user_data = user_data # Store full user data for attendance marking
         return user_data
-    except firebase_admin.auth.InvalidIdToken:
+    except firebase_admin.auth.InvalidIdToken as e:
+        logger.error(f"Invalid ID token: {e}")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials.")
     except Exception as e:
-        print(f"Authentication error: {e}")
+        logger.error(f"Authentication error: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Could not validate credentials: {e}")
 
 async def get_current_admin_user(current_user: dict = Depends(get_current_user_from_token)):
@@ -139,104 +162,146 @@ def haversine_distance(lat1, lon1, lat2, lon2):
 
 # --- API Endpoints ---
 
+@app.get("/", summary="Root endpoint for API status")
+async def read_root():
+    return {
+        "message": "PresenSync Backend API is running!",
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "version": "1.0.0"
+    }
+
+@app.get("/health", summary="Health check endpoint")
+async def health_check():
+    try:
+        # Test Firebase connection
+        test_doc = db.collection("health_check").document("test")
+        test_doc.set({"timestamp": datetime.now().isoformat()})
+        
+        return {
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat(),
+            "firebase": "connected",
+            "version": "1.0.0"
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Service unhealthy: {e}")
+
 @app.post("/attendance/mark", summary="Mark student attendance")
 async def mark_attendance(
     request_data: MarkAttendanceRequest,
     request: Request, # Inject the request object to access state
     current_user: dict = Depends(get_current_user_from_token) # Ensure student is authenticated
 ):
-    student_id = request.state.uid # Get student UID from verified token
-    student_profile_data = request.state.user_data # Get full user data from state
-    app_id = os.getenv("FIREBASE_PROJECT_ID", "default-app-id")
-
-    # 0. Validate QR Code Timestamp Liveness
-    QR_LIVENESS_WINDOW_SECONDS = 60 # QR code must be scanned within 60 seconds of its generation
     try:
-        qr_generated_time = datetime.fromisoformat(request_data.timestamp.replace('Z', '+00:00'))
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid QR timestamp format.")
+        logger.info(f"Attendance marking request from user: {request.state.uid}")
         
-    current_server_time = datetime.now()
+        student_id = request.state.uid # Get student UID from verified token
+        student_profile_data = request.state.user_data # Get full user data from state
+        app_id = os.getenv("FIREBASE_PROJECT_ID", "default-app-id")
 
-    if (current_server_time - qr_generated_time).total_seconds() > QR_LIVENESS_WINDOW_SECONDS:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="QR Code expired. Please scan a fresh QR.")
+        # 0. Validate QR Code Timestamp Liveness
+        QR_LIVENESS_WINDOW_SECONDS = 60 # QR code must be scanned within 60 seconds of its generation
+        try:
+            qr_generated_time = datetime.fromisoformat(request_data.timestamp.replace('Z', '+00:00'))
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid QR timestamp format.")
+            
+        current_server_time = datetime.now()
 
-    # 1. Validate Session Details (existence, active, not expired)
-    session_ref = db.collection(f"artifacts/{app_id}/users/{request_data.teacherId}/sessions").document(request_data.sessionId)
-    session_doc = session_ref.get()
+        if (current_server_time - qr_generated_time).total_seconds() > QR_LIVENESS_WINDOW_SECONDS:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="QR Code expired. Please scan a fresh QR.")
 
-    if not session_doc.exists:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found.")
+        # 1. Validate Session Details (existence, active, not expired)
+        session_ref = db.collection(f"artifacts/{app_id}/users/{request_data.teacherId}/sessions").document(request_data.sessionId)
+        session_doc = session_ref.get()
 
-    session_data = session_doc.to_dict()
+        if not session_doc.exists:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found.")
 
-    if session_data.get('status') != 'active':
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Session is not active.")
+        session_data = session_doc.to_dict()
 
-    try:
-        session_start_time = datetime.fromisoformat(session_data['startTime'].replace('Z', '+00:00'))
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid session start time format.")
+        if session_data.get('status') != 'active':
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Session is not active.")
 
-    duration_minutes = session_data['duration']
-    if session_data['durationUnit'] == 'hrs':
-        duration_minutes *= 60
-    session_end_time = session_start_time + timedelta(minutes=duration_minutes)
+        try:
+            session_start_time = datetime.fromisoformat(session_data['startTime'].replace('Z', '+00:00'))
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid session start time format.")
+
+        duration_minutes = session_data['duration']
+        if session_data['durationUnit'] == 'hrs':
+            duration_minutes *= 60
+        session_end_time = session_start_time + timedelta(minutes=duration_minutes)
+        
+        if not (session_start_time <= current_server_time <= session_end_time):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Attendance outside session time window.")
+
+        # 2. GPS Location Check
+        classroom_lat = session_data.get('classroomLat')
+        classroom_lon = session_data.get('classroomLon')
+        GPS_RADIUS_METERS = 100
+
+        if classroom_lat is None or classroom_lon is None:
+            logger.warning(f"Classroom coordinates missing for session {request_data.sessionId}. Skipping GPS check.")
+        else:
+            distance = haversine_distance(classroom_lat, classroom_lon, request_data.latitude, request_data.longitude)
+            if distance > GPS_RADIUS_METERS:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Outside classroom range. Distance: {distance:.2f}m")
+
+        # 3. Check for Duplicate Attendance
+        attendance_records_ref = db.collection(f"artifacts/{app_id}/public/data/attendanceRecords")
+        existing_attendance_query = attendance_records_ref.where("sessionId", "==", request_data.sessionId).where("studentId", "==", student_id).limit(1)
+        existing_attendance_docs = existing_attendance_query.get()
+
+        if len(existing_attendance_docs) > 0:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Attendance already marked for this session.")
+
+        # 4. Mark Attendance
+        attendance_data = {
+            "sessionId": request_data.sessionId,
+            "classId": request_data.classId,
+            "className": request_data.className,
+            "teacherId": request_data.teacherId,
+            "studentId": student_id,
+            "studentName": student_profile_data.get('fullName', 'Unknown Student'),
+            "studentRollNo": student_profile_data.get('rollNo', 'N/A'),
+            "timestamp": datetime.now().isoformat(), # Backend's timestamp for record integrity
+            "status": "present",
+            "verified_latitude": request_data.latitude,
+            "verified_longitude": request_data.longitude,
+            "faceMatchConfidence": request_data.faceMatchConfidence,
+            "ipAddress": request_data.ipAddress,
+            "qrTimestamp": qr_generated_time.isoformat(), # Original QR timestamp from frontend
+        }
+
+        attendance_records_ref.add(attendance_data)
+        
+        logger.info(f"Attendance marked successfully for student: {student_id}, session: {request_data.sessionId}")
+
+        return {"message": "Attendance marked successfully!", "status": "success"}
     
-    if not (session_start_time <= current_server_time <= session_end_time):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Attendance outside session time window.")
-
-    # 2. GPS Location Check
-    classroom_lat = session_data.get('classroomLat')
-    classroom_lon = session_data.get('classroomLon')
-    GPS_RADIUS_METERS = 100
-
-    if classroom_lat is None or classroom_lon is None:
-        print(f"Warning: Classroom coordinates missing for session {request_data.sessionId}. Skipping GPS check.")
-    else:
-        distance = haversine_distance(classroom_lat, classroom_lon, request_data.latitude, request_data.longitude)
-        if distance > GPS_RADIUS_METERS:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Outside classroom range. Distance: {distance:.2f}m")
-
-    # 3. Check for Duplicate Attendance
-    attendance_records_ref = db.collection(f"artifacts/{app_id}/public/data/attendanceRecords")
-    existing_attendance_query = attendance_records_ref.where("sessionId", "==", request_data.sessionId).where("studentId", "==", student_id).limit(1)
-    existing_attendance_docs = existing_attendance_query.get()
-
-    if len(existing_attendance_docs) > 0:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Attendance already marked for this session.")
-
-    # 4. Mark Attendance
-    attendance_data = {
-        "sessionId": request_data.sessionId,
-        "classId": request_data.classId,
-        "className": request_data.className,
-        "teacherId": request_data.teacherId,
-        "studentId": student_id,
-        "studentName": student_profile_data.get('fullName', 'Unknown Student'),
-        "studentRollNo": student_profile_data.get('rollNo', 'N/A'),
-        "timestamp": datetime.now().isoformat(), # Backend's timestamp for record integrity
-        "status": "present",
-        "verified_latitude": request_data.latitude,
-        "verified_longitude": request_data.longitude,
-        "faceMatchConfidence": request_data.faceMatchConfidence,
-        "ipAddress": request_data.ipAddress,
-        "qrTimestamp": qr_generated_time.isoformat(), # Original QR timestamp from frontend
-    }
-
-    attendance_records_ref.add(attendance_data)
-
-    return {"message": "Attendance marked successfully!", "status": "success"}
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        logger.error(f"Error marking attendance: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error while marking attendance")
 
 @app.get("/admin/users", summary="Get all user profiles (Admin only)")
 async def get_all_users(current_admin_user: dict = Depends(get_current_admin_user)):
-    app_id = os.getenv("FIREBASE_PROJECT_ID", "default-app-id")
-    users_ref = db.collection(f"artifacts/{app_id}/public/data/allUserProfiles")
-    users = []
-    for doc in users_ref.stream():
-        user_data = doc.to_dict()
-        users.append({"uid": doc.id, **user_data})
-    return {"users": users}
+    try:
+        app_id = os.getenv("FIREBASE_PROJECT_ID", "default-app-id")
+        users_ref = db.collection(f"artifacts/{app_id}/public/data/allUserProfiles")
+        users = []
+        for doc in users_ref.stream():
+            user_data = doc.to_dict()
+            users.append({"uid": doc.id, **user_data})
+        return {"users": users}
+    except Exception as e:
+        logger.error(f"Error fetching users: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error fetching user data")
 
 @app.put("/admin/users/{uid}/role", summary="Update user role (Admin only)")
 async def update_user_role(
@@ -244,15 +309,19 @@ async def update_user_role(
     role_update: UpdateUserRoleRequest,
     current_admin_user: dict = Depends(get_current_admin_user)
 ):
-    app_id = os.getenv("FIREBASE_PROJECT_ID", "default-app-id")
+    try:
+        app_id = os.getenv("FIREBASE_PROJECT_ID", "default-app-id")
 
-    private_user_profile_ref = db.collection(f"artifacts/{app_id}/users/{uid}/profile").document("userProfile")
-    private_user_profile_ref.update({"role": role_update.new_role})
+        private_user_profile_ref = db.collection(f"artifacts/{app_id}/users/{uid}/profile").document("userProfile")
+        private_user_profile_ref.update({"role": role_update.new_role})
 
-    public_user_profile_ref = db.collection(f"artifacts/{app_id}/public/data/allUserProfiles").document(uid)
-    public_user_profile_ref.update({"role": role_update.new_role})
+        public_user_profile_ref = db.collection(f"artifacts/{app_id}/public/data/allUserProfiles").document(uid)
+        public_user_profile_ref.update({"role": role_update.new_role})
 
-    return {"message": f"User {uid} role updated to {role_update.new_role}"}
+        return {"message": f"User {uid} role updated to {role_update.new_role}"}
+    except Exception as e:
+        logger.error(f"Error updating user role: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error updating user role")
 
 @app.delete("/admin/users/{uid}", summary="Delete user (Admin only)")
 async def delete_user_account(
@@ -260,12 +329,12 @@ async def delete_user_account(
     request: Request,
     current_admin_user: dict = Depends(get_current_admin_user)
 ):
-    app_id = os.getenv("FIREBASE_PROJECT_ID", "default-app-id")
-
-    if uid == request.state.uid:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot delete your own admin account via API.")
-
     try:
+        app_id = os.getenv("FIREBASE_PROJECT_ID", "default-app-id")
+
+        if uid == request.state.uid:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot delete your own admin account via API.")
+
         auth.delete_user(uid)
 
         private_user_profile_ref = db.collection(f"artifacts/{app_id}/users/{uid}/profile").document("userProfile")
@@ -274,13 +343,13 @@ async def delete_user_account(
         public_user_profile_ref = db.collection(f"artifacts/{app_id}/public/data/allUserProfiles").document(uid)
         public_user_profile_ref.delete()
 
-        print(f"User {uid} and their profile data deleted. Note: User-specific subcollections (classes, sessions, notifications) may still exist.")
+        logger.info(f"User {uid} and their profile data deleted. Note: User-specific subcollections (classes, sessions, notifications) may still exist.")
 
         return {"message": f"User {uid} and their profile data successfully deleted."}
     except auth.UserNotFoundError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
     except Exception as e:
-        print(f"Error deleting user {uid}: {e}")
+        logger.error(f"Error deleting user {uid}: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to delete user: {e}")
 
 @app.post("/admin/notifications/send_global", summary="Send global notification to all users (Admin only)")
@@ -288,26 +357,41 @@ async def send_global_notification(
     notification_data: GlobalNotificationRequest,
     current_admin_user: dict = Depends(get_current_user_from_token)
 ):
-    app_id = os.getenv("FIREBASE_PROJECT_ID", "default-app-id")
-    
-    all_users_ref = db.collection(f"artifacts/{app_id}/public/data/allUserProfiles")
-    user_uids = [doc.id for doc in all_users_ref.stream()]
+    try:
+        app_id = os.getenv("FIREBASE_PROJECT_ID", "default-app-id")
+        
+        all_users_ref = db.collection(f"artifacts/{app_id}/public/data/allUserProfiles")
+        user_uids = [doc.id for doc in all_users_ref.stream()]
 
-    batch = db.batch()
-    for uid in user_uids:
-        notification_ref = db.collection(f"artifacts/{app_id}/users/{uid}/notifications").document()
-        batch.set(notification_ref, {
-            "message": notification_data.message,
-            "type": notification_data.type,
-            "createdAt": datetime.now().isoformat(),
-            "read": False,
-            "sender": "admin"
-        })
-    
-    batch.commit()
-    return {"message": f"Global notification sent to {len(user_uids)} users."}
+        batch = db.batch()
+        for uid in user_uids:
+            notification_ref = db.collection(f"artifacts/{app_id}/users/{uid}/notifications").document()
+            batch.set(notification_ref, {
+                "message": notification_data.message,
+                "type": notification_data.type,
+                "createdAt": datetime.now().isoformat(),
+                "read": False,
+                "sender": "admin"
+            })
+        
+        batch.commit()
+        return {"message": f"Global notification sent to {len(user_uids)} users."}
+    except Exception as e:
+        logger.error(f"Error sending global notification: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error sending notification")
 
-# --- Root Endpoint for Testing ---
-@app.get("/", summary="Root endpoint for API status")
-async def read_root():
-    return {"message": "PresenSync Backend API is running!"}
+# Add OPTIONS handler for all routes to handle CORS preflight
+@app.options("/{full_path:path}")
+async def preflight_handler(request: Request, full_path: str):
+    return JSONResponse(
+        content={"message": "OK"},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
+
+# if __name__ == "__main__":
+#     import uvicorn
+#     uvicorn.run(app, host="0.0.0.0", port=8000)
