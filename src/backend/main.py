@@ -52,6 +52,7 @@ origins = [
     "http://127.0.0.1:5173",
     "https://presensync.vercel.app", # Vercel URL
     "https://*.vercel.app", # Allow all Vercel subdomains for preview deployments
+    "https://presensync.vercel.app/student/dashboard"
 ]
 
 app.add_middleware(
@@ -282,7 +283,7 @@ async def delete_user_account(
 @app.post("/admin/notifications/send_global", summary="Send global notification to all users (Admin only)")
 async def send_global_notification(
     notification_data: GlobalNotificationRequest,
-    current_admin_user: dict = Depends(get_current_admin_user)
+    current_admin_user: dict = Depends(get_current_user_from_token)
 ):
     app_id = os.getenv("FIREBASE_PROJECT_ID", "default-app-id")
     
