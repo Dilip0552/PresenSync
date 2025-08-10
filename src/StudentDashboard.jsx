@@ -8,7 +8,7 @@ import StudentDashboardHome from "./StudentDashboardHome";
 import StudentProfile from "./StudentProfile";
 import StudentNotifications from "./StudentNotifications";
 import StudentAttendanceReport from "./StudentAttendanceReport";
-
+import ProfileSettingsModal from "./ProfileSettingsModal"
 import Sidebar from "./Sidebar";
 import Header from "./Header";
 import NotificationSystem from "./NotificationSystem";
