@@ -62,7 +62,7 @@ function DashboardOverview({ classes, totalSessions }) {
             className="w-full h-full flex flex-col items-start justify-start relative"
             >
     
-    <div className="space-y-8 p-2"> {/* Added some padding */}
+    <div className="space-y-8 p-2 w-full"> {/* Added some padding */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <DashboardCard
           title="Total Classes"
