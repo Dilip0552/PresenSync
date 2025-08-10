@@ -270,7 +270,7 @@ function ManageClassesTab({ classes, setClasses, addNotification }) {
             transition={{ duration: 0.3 }}
             className="w-full h-full flex flex-col items-start justify-start relative"
             >
-    <div className="flex flex-col h-full relative">
+    <div className="flex flex-col h-full relative w-full">
       {loading && <Spinner message="Loading classes..." isVisible={true} />}
       <h1 className="text-2xl font-semibold mb-6 text-blue-700">Active Classes</h1>
       <div className="flex flex-col items-center flex-grow overflow-y-auto gap-4 scrollbar-thin scrollbar-thumb-blue-300 scrollbar-track-blue-100 pr-2">
