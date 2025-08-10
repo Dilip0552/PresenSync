@@ -11,7 +11,7 @@ function AttendanceReportsTab({ totalSessions, classes, addNotification }) {
   const [loading, setLoading] = useState(false);
 
   const { db, userId } = useFirebase();
-  const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+  const appId = typeof __app_id !== 'undefined' ? __app_id : 'presensync-app';
 
   // Filter unique classes that have sessions
   const uniqueClassesWithSessions = Array.from(new Set(totalSessions.map(session => session.className)))
