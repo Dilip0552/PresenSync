@@ -1,13 +1,16 @@
 import React, { useState, useEffect } from "react";
-import { collection, query, where, onSnapshot, doc, getDoc } from "firebase/firestore";
+import { collection, query, onSnapshot, doc, getDoc } from "firebase/firestore";
 import { useFirebase } from './FirebaseContext';
 import Spinner from "./Spinner";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable"; // For table formatting in PDF
+import * as XLSX from "xlsx";
 
 function StudentAttendanceReport({ addNotification, studentProfile }) {
   const [attendanceRecords, setAttendanceRecords] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [sessionsMap, setSessionsMap] = useState({}); // To store session details by sessionId
-  const [classesMap, setClassesMap] = useState({}); // To store class details by classId
+  const [sessionsMap, setSessionsMap] = useState({});
+  const [classesMap, setClassesMap] = useState({});
 
   const { db, userId } = useFirebase();
   const appId = typeof __app_id !== 'undefined' ? __app_id : 'presensync-app';
@@ -19,22 +22,19 @@ function StudentAttendanceReport({ addNotification, studentProfile }) {
     }
 
     setLoading(true);
-    // CORRECTED: Use 'userId' instead of the undefined 'student_id'
     const attendanceCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/attendanceRecords`);
-    const q = query(attendanceCollectionRef); // The path already filters by user, so the 'where' clause is redundant but harmless.
+    const q = query(attendanceCollectionRef);
 
     const unsubscribe = onSnapshot(q, async (snapshot) => {
       const fetchedRecords = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setAttendanceRecords(fetchedRecords);
 
-      // Fetch associated session and class details for each record
       const uniqueSessionIds = [...new Set(fetchedRecords.map(record => record.sessionId))];
       const uniqueClassIds = [...new Set(fetchedRecords.map(record => record.classId))];
 
       const newSessionsMap = { ...sessionsMap };
       const newClassesMap = { ...classesMap };
 
-      // Fetch session details
       for (const sessionId of uniqueSessionIds) {
         if (!newSessionsMap[sessionId]) {
           const record = fetchedRecords.find(rec => rec.sessionId === sessionId);
@@ -53,7 +53,6 @@ function StudentAttendanceReport({ addNotification, studentProfile }) {
       }
       setSessionsMap(newSessionsMap);
 
-      // Fetch class details (from the teacher who created the class)
       for (const classId of uniqueClassIds) {
         if (!newClassesMap[classId]) {
           const record = fetchedRecords.find(rec => rec.classId === classId);
@@ -82,8 +81,52 @@ function StudentAttendanceReport({ addNotification, studentProfile }) {
     return () => unsubscribe();
   }, [db, userId, appId, addNotification, sessionsMap, classesMap]);
 
-  // Calculate overall attendance statistics
   const totalSessionsAttended = attendanceRecords.length;
+
+  // Generate PDF report
+  const generateReport = () => {
+    const doc = new jsPDF();
+    doc.text("Attendance Report", 14, 15);
+
+    const tableData = attendanceRecords.map(record => {
+      const session = sessionsMap[record.sessionId];
+      const className = session?.className || record.className || 'Unknown Class';
+      const sessionTime = session ? new Date(session.startTime).toLocaleString() : new Date(record.timestamp).toLocaleString();
+      return [
+        sessionTime,
+        className,
+        record.sessionId,
+        record.status.charAt(0).toUpperCase() + record.status.slice(1)
+      ];
+    });
+
+    autoTable(doc, {
+      head: [["Date & Time", "Class", "Session ID", "Status"]],
+      body: tableData
+    });
+
+    doc.save("Attendance_Report.pdf");
+  };
+
+  // Export to Excel
+  const exportToExcel = () => {
+    const data = attendanceRecords.map(record => {
+      const session = sessionsMap[record.sessionId];
+      const className = session?.className || record.className || 'Unknown Class';
+      const sessionTime = session ? new Date(session.startTime).toLocaleString() : new Date(record.timestamp).toLocaleString();
+      return {
+        "Date & Time": sessionTime,
+        "Class": className,
+        "Session ID": record.sessionId,
+        "Status": record.status.charAt(0).toUpperCase() + record.status.slice(1)
+      };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Attendance Report");
+    XLSX.writeFile(wb, "Attendance_Report.xlsx");
+  };
 
   return (
     <div className="w-full h-full flex flex-col items-start justify-start p-4">
@@ -91,6 +134,23 @@ function StudentAttendanceReport({ addNotification, studentProfile }) {
 
       {loading && <Spinner message="Loading attendance data..." />}
 
+      {/* Action Buttons */}
+      <div className="mb-4 flex gap-4">
+        <button
+          onClick={generateReport}
+          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+        >
+          Generate Report (PDF)
+        </button>
+        <button
+          onClick={exportToExcel}
+          className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700"
+        >
+          Export to Excel
+        </button>
+      </div>
+
+      {/* Summary */}
       <div className="bg-white rounded-xl shadow-md p-6 w-full max-w-4xl mb-8 border border-gray-100">
         <h3 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b border-gray-200">Summary</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -100,15 +160,15 @@ function StudentAttendanceReport({ addNotification, studentProfile }) {
           </div>
           <div className="flex flex-col bg-green-50 p-4 rounded-lg shadow-sm">
             <span className="text-sm text-gray-600">Overall Attendance Rate</span>
-            {/* This calculation needs total possible sessions, which is not readily available here */}
             <span className="text-3xl font-bold text-green-700">N/A%</span>
           </div>
         </div>
       </div>
 
+      {/* Detailed Table */}
       <div className="bg-white rounded-xl shadow-md p-6 w-full max-w-4xl border border-gray-100 flex-grow flex flex-col">
         <h3 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b border-gray-200">Detailed Records</h3>
-        <div className="overflow-x-auto rounded-lg shadow-inner bg-gray-50 border border-gray-100 flex-grow scrollbar-thin scrollbar-thumb-blue-300 scrollbar-track-blue-100">
+        <div className="overflow-x-auto rounded-lg shadow-inner bg-gray-50 border border-gray-100 flex-grow">
           <table className="min-w-full text-sm text-left text-gray-600">
             <thead className="text-xs bg-blue-100 text-blue-800 uppercase tracking-wider">
               <tr>
@@ -126,7 +186,7 @@ function StudentAttendanceReport({ addNotification, studentProfile }) {
               ) : (
                 attendanceRecords.map((record) => {
                   const session = sessionsMap[record.sessionId];
-                  const className = session?.className || record.className || 'Unknown Class'; // Fallback to record's className
+                  const className = session?.className || record.className || 'Unknown Class';
                   const sessionTime = session ? new Date(session.startTime).toLocaleString() : new Date(record.timestamp).toLocaleString();
 
                   return (
