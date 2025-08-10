@@ -1,3 +1,5 @@
+// Update your AttendanceReportsTab.jsx with better debugging and path verification
+
 import React, { useState, useEffect, useCallback } from "react";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { useFirebase } from './FirebaseContext';
@@ -5,8 +7,8 @@ import Spinner from "./Spinner";
 
 function AttendanceReportsTab({ totalSessions, classes, addNotification }) {
   const [currentView, setCurrentView] = useState("classList");
-  const [selectedClass, setSelectedClass] = useState(null); // Stores the class object
-  const [selectedSession, setSelectedSession] = useState(null); // Stores the session object
+  const [selectedClass, setSelectedClass] = useState(null);
+  const [selectedSession, setSelectedSession] = useState(null);
   const [attendanceRecords, setAttendanceRecords] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -16,50 +18,82 @@ function AttendanceReportsTab({ totalSessions, classes, addNotification }) {
   // Filter unique classes that have sessions
   const uniqueClassesWithSessions = Array.from(new Set(totalSessions.map(session => session.className)))
     .map(className => classes.find(cls => cls.name === className))
-    .filter(Boolean); // Filter out any undefined if a class name doesn't match
+    .filter(Boolean);
 
   // Filter sessions for the currently selected class
   const filteredSessionsForClass = totalSessions.filter(
     (session) => session.classId === selectedClass?.id
-  ).sort((a, b) => new Date(b.startTime) - new Date(a.startTime)); // Sort by most recent
+  ).sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
 
-  // Fetch attendance records for the selected session only when viewing details
+  // Fetch attendance records for the selected session with enhanced debugging
   useEffect(() => {
     let unsubscribe;
 
     if (db && userId && selectedSession?.id && currentView === 'sessionDetails') {
       setLoading(true);
+      console.log('AttendanceReportsTab: Setting up attendance listener...');
+      console.log('AttendanceReportsTab: Session ID:', selectedSession.id);
+      console.log('AttendanceReportsTab: Teacher ID (userId):', userId);
+      console.log('AttendanceReportsTab: App ID:', appId);
+      
       try {
-        const attendanceCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/sessions/${selectedSession.id}/attendance`);
+        // Construct the exact path that the backend writes to
+        const attendancePath = `artifacts/${appId}/users/${userId}/sessions/${selectedSession.id}/attendance`;
+        console.log('AttendanceReportsTab: Attendance collection path:', attendancePath);
+        
+        const attendanceCollectionRef = collection(db, attendancePath);
         const q = query(attendanceCollectionRef);
 
         unsubscribe = onSnapshot(q, (snapshot) => {
-          const fetchedRecords = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          console.log('AttendanceReportsTab: Snapshot received, doc count:', snapshot.docs.length);
+          
+          const fetchedRecords = snapshot.docs.map(doc => {
+            const data = { id: doc.id, ...doc.data() };
+            console.log('AttendanceReportsTab: Attendance record found:', {
+              docId: doc.id,
+              studentId: data.studentId,
+              studentName: data.studentName,
+              status: data.status,
+              timestamp: data.timestamp
+            });
+            return data;
+          });
+          
           setAttendanceRecords(fetchedRecords);
           setLoading(false);
-          addNotification("Attendance records updated.", "info");
+          
+          if (fetchedRecords.length > 0) {
+            addNotification(`${fetchedRecords.length} attendance records loaded.`, "info");
+          } else {
+            console.log('AttendanceReportsTab: No attendance records found for this session');
+            addNotification("No attendance records found for this session.", "info");
+          }
         }, (error) => {
-          console.error("Error fetching attendance records:", error);
+          console.error("AttendanceReportsTab: Error fetching attendance records:", error);
+          console.error("AttendanceReportsTab: Failed path:", attendancePath);
           addNotification("Failed to load attendance records.", "error");
           setLoading(false);
         });
       } catch (error) {
-        console.error("Error setting up attendance listener:", error);
+        console.error("AttendanceReportsTab: Error setting up attendance listener:", error);
         addNotification("Failed to set up attendance listener.", "error");
         setLoading(false);
       }
     } else {
+      console.log('AttendanceReportsTab: Clearing attendance records');
       setAttendanceRecords([]);
     }
 
     return () => {
       if (unsubscribe) {
+        console.log('AttendanceReportsTab: Cleaning up attendance listener');
         unsubscribe();
       }
     };
   }, [db, userId, selectedSession, appId, addNotification, currentView]);
 
   const handleSelectClass = (cls) => {
+    console.log('AttendanceReportsTab: Selected class:', cls.name, 'ID:', cls.id);
     setSelectedClass(cls);
     setCurrentView("classSessions");
   };
@@ -71,6 +105,13 @@ function AttendanceReportsTab({ totalSessions, classes, addNotification }) {
   };
 
   const handleViewSessionDetails = (session) => {
+    console.log('AttendanceReportsTab: Viewing session details:', {
+      sessionId: session.id,
+      className: session.className,
+      startTime: session.startTime,
+      totalPresent: session.totalPresent,
+      totalStudents: session.totalStudents
+    });
     setSelectedSession(session);
     setCurrentView("sessionDetails");
   };
@@ -80,6 +121,7 @@ function AttendanceReportsTab({ totalSessions, classes, addNotification }) {
     setCurrentView("classSessions");
   };
 
+  // Rest of your render functions remain the same...
   const renderClassList = () => (
     <div className="flex flex-col items-center flex-grow overflow-y-auto gap-4 py-2 scrollbar-thin scrollbar-thumb-blue-300 scrollbar-track-blue-100 pr-2">
       {loading && <Spinner message="Loading classes..." />}
@@ -134,7 +176,6 @@ function AttendanceReportsTab({ totalSessions, classes, addNotification }) {
               </tr>
             ) : (
               filteredSessionsForClass.map((session) => {
-                // FIXED: Use the pre-calculated totals from the session document
                 const totalPresent = session.totalPresent || 0;
                 const totalStudentsInClass = session.totalStudents || 0;
                 const totalAbsent = totalStudentsInClass - totalPresent;
@@ -184,6 +225,15 @@ function AttendanceReportsTab({ totalSessions, classes, addNotification }) {
         </h2>
       </div>
 
+      {/* Debug Information */}
+      <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+        <p className="text-sm text-blue-700">
+          <strong>Debug Info:</strong> Found {attendanceRecords.length} attendance records | 
+          Session ID: {selectedSession?.id} | 
+          Expected Students: {selectedClass?.students?.length || 0}
+        </p>
+      </div>
+
       <div className="overflow-x-auto rounded-lg shadow-md bg-white border border-gray-100 flex-grow scrollbar-thin scrollbar-thumb-blue-300 scrollbar-track-blue-100">
         <table className="min-w-full text-sm text-left text-gray-600">
           <thead className="text-xs bg-blue-100 text-blue-800 uppercase tracking-wider">
@@ -202,12 +252,33 @@ function AttendanceReportsTab({ totalSessions, classes, addNotification }) {
               </tr>
             ) : (
               selectedClass?.students.map((student, index) => {
-                const record = attendanceRecords.find(rec => rec.studentId === student.uid);
+                // IMPROVED: Match by both studentId and rollNo for better accuracy
+                const record = attendanceRecords.find(rec => 
+                  rec.studentId === student.uid || 
+                  rec.studentRollNo === student.rollNo
+                );
+                
                 const status = record ? 'Present' : 'Absent';
-                const timeMarked = record?.timestamp?.toDate()?.toLocaleTimeString() || '-';
+                const timeMarked = record?.timestamp?.toDate ? 
+                  record.timestamp.toDate().toLocaleTimeString() : 
+                  (record?.timestamp || '-');
+
+                // Debug log for each student
+                if (index === 0) {
+                  console.log('AttendanceReportsTab: Sample student matching:', {
+                    studentUid: student.uid,
+                    studentRollNo: student.rollNo,
+                    foundRecord: !!record,
+                    recordData: record ? {
+                      studentId: record.studentId,
+                      studentRollNo: record.studentRollNo,
+                      timestamp: record.timestamp
+                    } : null
+                  });
+                }
 
                 return (
-                  <tr key={student.uid} className="border-b hover:bg-gray-50 transition-colors">
+                  <tr key={student.uid || student.rollNo} className="border-b hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4 font-medium">{index + 1}</td>
                     <td className="px-6 py-4">{student.name}</td>
                     <td className="px-6 py-4">{student.rollNo}</td>
