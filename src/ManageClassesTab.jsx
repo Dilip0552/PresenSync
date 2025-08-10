@@ -330,6 +330,17 @@ function ManageClassesTab({ classes, setClasses, addNotification }) {
   );
 
   const renderStudentList = () => (
+    <>
+    <AnimatePresence mode="wait">
+
+      <motion.div
+            key="StudentList-view"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            transition={{ duration: 0.3 }}
+            className="w-full h-full flex flex-col items-start justify-start relative"
+            >
     <div className="w-full flex flex-col h-full relative">
       {loading && <Spinner message="Updating students..." isVisible={true} />}
       <div className="flex items-center gap-4 mb-6">
@@ -418,6 +429,9 @@ function ManageClassesTab({ classes, setClasses, addNotification }) {
         </button>
       </div>
     </div>
+    </motion.div>
+    </AnimatePresence>
+    </>
   );
 
   const renderAddNewClass = () => (
