@@ -210,3 +210,4 @@ function StudentAttendanceReport({ addNotification, studentProfile }) {
 }
 
 export default StudentAttendanceReport;
+
