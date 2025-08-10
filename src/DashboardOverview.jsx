@@ -1,5 +1,6 @@
 import React from 'react';
 import { LayoutDashboard, Clock, CheckCircle, Users } from 'lucide-react'; // Import icons from lucide-react
+import { AnimatePresence,motion } from 'framer-motion';
 
 const DashboardCard = ({ title, value, icon: Icon, bgColor, textColor }) => (
   <div className={`bg-white p-6 rounded-xl shadow-md flex items-center space-x-4 border-l-4 ${bgColor} transition-shadow duration-300 hover:shadow-lg`}>
@@ -49,6 +50,18 @@ function DashboardOverview({ classes, totalSessions }) {
     .slice(0, 5); // Limit to 5 recent sessions
 
   return (
+    <>
+    <AnimatePresence mode="wait">
+
+      <motion.div
+            key="overview"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            transition={{ duration: 0.3 }}
+            className="w-full h-full flex flex-col items-start justify-start relative"
+            >
+    
     <div className="space-y-8 p-2"> {/* Added some padding */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <DashboardCard
@@ -120,6 +133,9 @@ function DashboardOverview({ classes, totalSessions }) {
         </div>
       </div>
     </div>
+    </motion.div>
+    </AnimatePresence>
+    </>
   );
 }
 
