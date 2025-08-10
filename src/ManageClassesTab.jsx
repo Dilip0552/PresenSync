@@ -1,604 +1,478 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { collection, addDoc, deleteDoc, doc, updateDoc, arrayUnion, arrayRemove, onSnapshot, getDoc } from "firebase/firestore";
+import React, { useState, useEffect } from 'react';
+import { collection, addDoc, deleteDoc, doc, query, where, onSnapshot, writeBatch, getDoc } from 'firebase/firestore';
 import { useFirebase } from './FirebaseContext';
-import Spinner from "./Spinner";
-import next from "./assets/next.png"
-import back from "./assets/back.png"
-import deleteimg from "./assets/delete.png"
-import remove from "./assets/remove.png"
-import { AnimatePresence, motion } from "framer-motion";
-function ManageClassesTab({ classes, setClasses, addNotification }) {
-  const [currentView, setCurrentView] = useState("classList"); // "classList", "studentList", "addNewClass"
-  const [selectedClass, setSelectedClass] = useState(null); // Stores the class object currently being viewed
+import Spinner from './Spinner';
+import { Trash2, Users, Plus, Minus } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
+
+function ManageClassesTab({ classes, addNotification }) {
+  const [className, setClassName] = useState('');
+  const [subject, setSubject] = useState('');
+  const [selectedStudents, setSelectedStudents] = useState([]);
+  const [allStudents, setAllStudents] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [studentsInSelectedClass, setStudentsInSelectedClass] = useState([]);
-
-  // State for adding new class details
-  const [newClassNameYear, setNewClassNameYear] = useState("");
-  const [newClassNameBatch, setNewClassNameBatch] = useState("");
-  const [newClassNameSection, setNewClassNameSection] = useState("");
-  const [studentsToAddList, setStudentsToAddList] = useState([]); // Students for the NEW class being created
-
-  // State for adding individual students to the 'add new class' form or existing class
-  const [studentName, setStudentName] = useState("");
-  const [studentRollNo, setStudentRollNo] = useState("");
+  const [deleteLoading, setDeleteLoading] = useState('');
+  
+  // Enrollment management states
+  const [showEnrollmentSection, setShowEnrollmentSection] = useState(false);
+  const [selectedClassForEnrollment, setSelectedClassForEnrollment] = useState(null);
+  const [enrollmentLoading, setEnrollmentLoading] = useState(false);
 
   const { db, userId } = useFirebase();
-  const appId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
+  const appId = typeof __app_id !== 'undefined' ? __app_id : 'presensync-app';
 
-  // Fetch students for the selected class in real-time
+  // Fetch all students (both for class creation and enrollment)
   useEffect(() => {
-    if (db && userId && selectedClass?.id) {
-      setLoading(true);
-      const classDocRef = doc(db, `artifacts/${appId}/users/${userId}/classes`, selectedClass.id);
-      const unsubscribe = onSnapshot(classDocRef, (docSnap) => {
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          setStudentsInSelectedClass(data.students || []);
-          console.log("ManageClassesTab: Fetched students for selected class:", data.students); // Log student fetch
-        } else {
-          setStudentsInSelectedClass([]);
-          console.warn("ManageClassesTab: Selected class document not found for student list.");
-        }
-        setLoading(false);
-      }, (error) => {
-        console.error("ManageClassesTab: Error fetching students for class:", error);
-        addNotification("Failed to load students for this class.", "error");
-        setLoading(false);
-      });
+    if (!db) return;
 
-      return () => unsubscribe();
-    } else {
-      setStudentsInSelectedClass([]);
+    const studentsCollectionRef = collection(db, `artifacts/${appId}/public/data/allUserProfiles`);
+    const q = query(studentsCollectionRef, where("role", "==", "student"));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetchedStudents = snapshot.docs.map(doc => ({
+        uid: doc.id,
+        id: doc.id, // Add both uid and id for compatibility
+        ...doc.data()
+      }));
+      setAllStudents(fetchedStudents);
+    }, (error) => {
+      console.error("Error fetching students:", error);
+      addNotification("Failed to load students.", "error");
+    });
+
+    return () => unsubscribe();
+  }, [db, appId, addNotification]);
+
+  const handleStudentSelection = (student) => {
+    setSelectedStudents(prev => {
+      const isSelected = prev.some(s => s.uid === student.uid);
+      if (isSelected) {
+        return prev.filter(s => s.uid !== student.uid);
+      } else {
+        return [...prev, {
+          uid: student.uid,
+          name: student.fullName || student.displayName || 'Unknown',
+          rollNo: student.rollNo || 'N/A'
+        }];
+      }
+    });
+  };
+
+  const handleCreateClass = async (e) => {
+    e.preventDefault();
+    
+    if (!className.trim()) {
+      addNotification("Please enter a class name.", "error");
+      return;
     }
-  }, [db, userId, appId, selectedClass, addNotification]);
 
+    setLoading(true);
+    try {
+      const classesCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/classes`);
+      
+      const newClassData = {
+        name: className,
+        subject: subject,
+        students: selectedStudents,
+        enrolledStudents: selectedStudents.map(student => student.uid), // Add enrolled students IDs
+        enrollmentCount: selectedStudents.length, // Add enrollment count
+        createdAt: new Date().toISOString(),
+        teacherId: userId,
+      };
 
-  // --- Handlers for Input Fields ---
-  const handleYearChange = (e) => {
-    setNewClassNameYear(e.target.value);
-  };
-
-  const handleBatchChange = (e) => {
-    const re = /^[0-9\b]+$/;
-    if ((e.target.value === "" || re.test(e.target.value)) && e.target.value.length <= 4) {
-      setNewClassNameBatch(e.target.value);
+      await addDoc(classesCollectionRef, newClassData);
+      
+      addNotification("Class created successfully!", "success");
+      setClassName('');
+      setSubject('');
+      setSelectedStudents([]);
+    } catch (error) {
+      console.error("Error creating class:", error);
+      addNotification("Failed to create class.", "error");
+    } finally {
+      setLoading(false);
     }
   };
-
-  const handleSectionChange = (e) => {
-    const re = /^[a-zA-Z\b]+$/;
-    if ((e.target.value === "" || re.test(e.target.value)) && e.target.value.length <= 1) {
-      setNewClassNameSection(e.target.value.toUpperCase());
-    }
-  };
-
-  const handleStudentNameChange = (e) => {
-    setStudentName(e.target.value);
-  };
-
-  const handleStudentRollNoChange = (e) => {
-    setStudentRollNo(e.target.value);
-  };
-
-  // --- Class Management Handlers (Firestore) ---
 
   const handleDeleteClass = async (classId, className) => {
-    const confirmDelete = window.confirm(`Are you sure you want to delete "${className}"? This will permanently remove the class and its associated student data.`);
-    if (!confirmDelete) {
-      return;
-    }
-
-    setLoading(true);
+    if (!confirm(`Are you sure you want to delete "${className}"?`)) return;
+    
+    setDeleteLoading(classId);
     try {
-      const classDocRef = doc(db, `artifacts/${appId}/users/${userId}/classes`, classId);
-      await deleteDoc(classDocRef);
+      await deleteDoc(doc(db, `artifacts/${appId}/users/${userId}/classes`, classId));
       addNotification(`Class "${className}" deleted successfully!`, "success");
-      console.log("ManageClassesTab: Class deleted:", className, "ID:", classId); // Log deletion
     } catch (error) {
-      console.error("ManageClassesTab: Error deleting class:", error);
-      addNotification(`Failed to delete class "${className}".`, "error");
+      console.error("Error deleting class:", error);
+      addNotification("Failed to delete class.", "error");
     } finally {
-      setLoading(false);
+      setDeleteLoading('');
     }
   };
 
-  const handleAddStudentToNewClassList = () => {
-    if (studentName.trim() === "" || studentRollNo.trim() === "") {
-      addNotification("Student name and roll number cannot be empty.", "error");
-      return;
-    }
-    if (studentsToAddList.some(s => s.rollNo === studentRollNo.trim())) {
-      addNotification("Student with this Roll No. already added to this list.", "error");
-      return;
-    }
-
-    setStudentsToAddList(prev => [...prev, { name: studentName.trim(), rollNo: studentRollNo.trim() }]);
-    addNotification(`Student "${studentName.trim()}" added to the new class list.`, "info");
-    setStudentName("");
-    setStudentRollNo("");
-    console.log("ManageClassesTab: Student added to new class list:", studentName, studentRollNo); // Log student add to list
-  };
-
-  const handleRemoveStudentFromNewClassList = (rollNoToRemove) => {
-    setStudentsToAddList(prev => prev.filter(student => student.rollNo !== rollNoToRemove));
-    addNotification("Student removed from the list.", "info");
-    console.log("ManageClassesTab: Student removed from new class list. Roll No:", rollNoToRemove); // Log removal
-  };
-
-  const handleCreateNewClass = async () => {
-    if (!newClassNameYear || !newClassNameBatch || !newClassNameSection) {
-      addNotification("Please fill in Year, Batch, and Section for the new class.", "error");
-      console.warn("ManageClassesTab: Missing class details for creation."); // Log missing details
-      return;
-    }
-
-    const newClassFullName = `CS${newClassNameYear}-${newClassNameSection}`;
-
-    // Check if class already exists locally (from Firestore snapshot)
-    if (classes.some(cls => cls.name === newClassFullName)) {
-      addNotification(`Class "${newClassFullName}" already exists!`, "error");
-      console.warn("ManageClassesTab: Attempted to create duplicate class:", newClassFullName); // Log duplicate attempt
-      return;
-    }
-
-    setLoading(true);
+  // Enrollment management functions
+  const enrollStudent = async (studentId, classId, action = 'enroll') => {
+    setEnrollmentLoading(true);
     try {
-      console.log("ManageClassesTab: Attempting to create new class...");
-      console.log("ManageClassesTab: Target path:", `artifacts/${appId}/users/${userId}/classes`);
-      console.log("ManageClassesTab: Data to save:", {
-        name: newClassFullName,
-        year: newClassNameYear,
-        batch: newClassNameBatch,
-        section: newClassNameSection,
-        teacherId: userId,
-        students: studentsToAddList.map(student => ({
-          name: student.name,
-          rollNo: student.rollNo,
-          batch: newClassNameBatch,
-        })),
-        createdAt: new Date().toISOString(),
-      });
+      const batch = writeBatch(db);
 
-      const classesCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/classes`);
-      const docRef = await addDoc(classesCollectionRef, { // Capture the docRef
-        name: newClassFullName,
-        year: newClassNameYear,
-        batch: newClassNameBatch,
-        section: newClassNameSection,
-        teacherId: userId,
-        students: studentsToAddList.map(student => ({
-          name: student.name,
-          rollNo: student.rollNo,
-          batch: newClassNameBatch,
-        })),
-        createdAt: new Date().toISOString(),
-      });
+      // Update student's public profile
+      const publicProfileRef = doc(db, `artifacts/${appId}/public/data/allUserProfiles`, studentId);
+      const publicProfileSnap = await getDoc(publicProfileRef);
+      
+      if (publicProfileSnap.exists()) {
+        const currentData = publicProfileSnap.data();
+        const currentEnrolledClasses = currentData.enrolledClasses || [];
+        
+        let updatedEnrolledClasses;
+        if (action === 'enroll') {
+          updatedEnrolledClasses = [...new Set([...currentEnrolledClasses, classId])];
+        } else {
+          updatedEnrolledClasses = currentEnrolledClasses.filter(id => id !== classId);
+        }
+        
+        batch.update(publicProfileRef, {
+          enrolledClasses: updatedEnrolledClasses
+        });
+      }
 
-      addNotification(`Class "${newClassFullName}" created successfully!`, "success");
-      console.log("ManageClassesTab: Class created successfully with ID:", docRef.id); // Log success with ID
+      // Update student's private profile
+      const privateProfileRef = doc(db, `artifacts/${appId}/users/${studentId}/profile`, 'userProfile');
+      const privateProfileSnap = await getDoc(privateProfileRef);
+      
+      if (privateProfileSnap.exists()) {
+        const currentData = privateProfileSnap.data();
+        const currentEnrolledClasses = currentData.enrolledClasses || [];
+        
+        let updatedEnrolledClasses;
+        if (action === 'enroll') {
+          updatedEnrolledClasses = [...new Set([...currentEnrolledClasses, classId])];
+        } else {
+          updatedEnrolledClasses = currentEnrolledClasses.filter(id => id !== classId);
+        }
+        
+        batch.update(privateProfileRef, {
+          enrolledClasses: updatedEnrolledClasses
+        });
+      }
 
-      // Reset all states for new class creation
-      setNewClassNameYear("");
-      setNewClassNameBatch("");
-      setNewClassNameSection("");
-      setStudentsToAddList([]);
-      setStudentName("");
-      setStudentRollNo("");
-      setCurrentView("classList");
+      // Update class enrollment count (optional - for display purposes)
+      const classRef = doc(db, `artifacts/${appId}/users/${userId}/classes`, classId);
+      const classSnap = await getDoc(classRef);
+      
+      if (classSnap.exists()) {
+        const classData = classSnap.data();
+        const currentEnrolledStudents = classData.enrolledStudents || [];
+        
+        let updatedEnrolledStudents;
+        if (action === 'enroll') {
+          updatedEnrolledStudents = [...new Set([...currentEnrolledStudents, studentId])];
+        } else {
+          updatedEnrolledStudents = currentEnrolledStudents.filter(id => id !== studentId);
+        }
+        
+        batch.update(classRef, {
+          enrolledStudents: updatedEnrolledStudents,
+          enrollmentCount: updatedEnrolledStudents.length
+        });
+      }
+
+      await batch.commit();
+      
+      const studentName = allStudents.find(s => s.id === studentId)?.fullName || 'Student';
+      const className = classes.find(c => c.id === classId)?.name || 'Class';
+      addNotification(`${studentName} ${action === 'enroll' ? 'enrolled in' : 'removed from'} ${className}!`, 'success');
+      
     } catch (error) {
-      console.error("ManageClassesTab: Error creating new class:", error); // Log the actual error
-      addNotification("Failed to create new class. Please try again.", "error");
+      console.error("Error updating enrollment:", error);
+      addNotification("Failed to update enrollment.", "error");
     } finally {
-      setLoading(false);
+      setEnrollmentLoading(false);
     }
   };
 
-  const handleAddStudentToExistingClass = async () => {
-    if (!selectedClass || !selectedClass.id) {
-      addNotification("No class selected.", "error");
-      return;
-    }
-    if (studentName.trim() === "" || studentRollNo.trim() === "") {
-      addNotification("Student name and roll number cannot be empty.", "error");
-      return;
-    }
-
-    if (studentsInSelectedClass.some(s => s.rollNo === studentRollNo.trim())) {
-      addNotification("Student with this Roll No. already exists in this class.", "error");
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const classDocRef = doc(db, `artifacts/${appId}/users/${userId}/classes`, selectedClass.id);
-      await updateDoc(classDocRef, {
-        students: arrayUnion({
-          name: studentName.trim(),
-          rollNo: studentRollNo.trim(),
-          batch: selectedClass.batch || newClassNameBatch,
-        })
-      });
-      addNotification(`Student "${studentName.trim()}" added to ${selectedClass.name}.`, "success");
-      console.log("ManageClassesTab: Student added to existing class:", studentName, "Roll No:", studentRollNo, "Class:", selectedClass.name); // Log add student
-      setStudentName("");
-      setStudentRollNo("");
-    } catch (error) {
-      console.error("ManageClassesTab: Error adding student to class:", error);
-      addNotification("Failed to add student to class. Please try again.", "error");
-    } finally {
-      setLoading(false);
-    }
+  // Get enrolled and available students for the selected class
+  const getEnrolledStudents = () => {
+    if (!selectedClassForEnrollment) return [];
+    return allStudents.filter(student => 
+      student.enrolledClasses?.includes(selectedClassForEnrollment.id)
+    );
   };
 
-  const handleRemoveStudentFromExistingClass = async (studentToRemove) => {
-    if (!selectedClass || !selectedClass.id) {
-      addNotification("No class selected.", "error");
-      return;
-    }
-    const confirmRemove = window.confirm(`Are you sure you want to remove "${studentToRemove.name}" from "${selectedClass.name}"?`);
-    if (!confirmRemove) {
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const classDocRef = doc(db, `artifacts/${appId}/users/${userId}/classes`, selectedClass.id);
-      await updateDoc(classDocRef, {
-        students: arrayRemove(studentToRemove)
-      });
-      addNotification(`Student "${studentToRemove.name}" removed from ${selectedClass.name}.`, "success");
-      console.log("ManageClassesTab: Student removed from existing class:", studentToRemove.name, "Class:", selectedClass.name); // Log remove student
-    } catch (error) {
-      console.error("ManageClassesTab: Error removing student from class:", error);
-      addNotification("Failed to remove student from class. Please try again.", "error");
-    } finally {
-      setLoading(false);
-    }
+  const getAvailableStudents = () => {
+    if (!selectedClassForEnrollment) return [];
+    return allStudents.filter(student => 
+      !student.enrolledClasses?.includes(selectedClassForEnrollment.id)
+    );
   };
-
-
-  const renderClassList = () => (
-    <>
-      <AnimatePresence mode="wait">
-
-      <motion.div
-            key="classList-view"
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.3 }}
-            className="w-full h-full flex flex-col items-start justify-start relative"
-            >
-    <div className="flex flex-col h-full relative w-full">
-      {loading && <Spinner message="Loading classes..." isVisible={true} />}
-      <h1 className="text-2xl font-semibold mb-6 text-blue-700">Active Classes</h1>
-      <div className="flex flex-col items-center flex-grow overflow-y-auto gap-4 scrollbar-thin scrollbar-thumb-blue-300 scrollbar-track-blue-100 pr-2">
-        {classes.length === 0 ? (
-          <p className="text-gray-500 text-center py-10">No classes created yet. Click below to add a new class!</p>
-        ) : (
-          classes.map((myclass) => (
-            <div
-            key={myclass.id}
-              className="w-full md:w-2/3 bg-white hover:bg-blue-50 border border-blue-200 rounded-xl px-6 py-4 shadow-sm cursor-pointer flex justify-between items-center transition-all duration-200 group"
-              onClick={() => {
-                setSelectedClass(myclass);
-                setCurrentView("studentList");
-              }}
-            >
-              <span className="text-lg font-medium text-gray-700">{myclass.name}</span>
-              <div className="flex items-center space-x-3">
-                 <span className="text-sm text-gray-500">
-                    Students: {(myclass.students || []).length}
-                 </span>
-                <img className="w-4 h-4 opacity-60 group-hover:opacity-100 transition-opacity" src={next} alt="view" />
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDeleteClass(myclass.id, myclass.name);
-                  }}
-                  className="p-2 rounded-full bg-gray-100 hover:bg-red-100 transition-colors"
-                  title="Delete Class"
-                >
-                  <img src={deleteimg} alt="delete" className="w-5 h-5 opacity-70 hover:opacity-100" />
-                </button>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-      <button
-        className="w-1/2 mx-auto mt-6 block bg-blue-600 text-white px-5 py-3 rounded-xl cursor-pointer hover:bg-blue-700 transition-all text-lg font-medium shadow-lg"
-        onClick={() => {
-          setNewClassNameYear("");
-          setNewClassNameBatch("");
-          setNewClassNameSection("");
-          setStudentsToAddList([]);
-          setStudentName("");
-          setStudentRollNo("");
-          setCurrentView("addNewClass");
-        }}
-        disabled={loading}
-      >
-        <Spinner size="small" color="white" isVisible={loading} />
-        <span className={loading ? 'opacity-0' : ''}>+ Add New Class</span>
-      </button>
-    </div>
-      </motion.div>
-        </AnimatePresence>
-        </>
-  );
-
-  const renderStudentList = () => (
-    <>
-    <AnimatePresence mode="wait">
-
-      <motion.div
-            key="StudentList-view"
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.3 }}
-            className="w-full h-full flex flex-col items-start justify-start relative"
-            >
-    <div className="w-full flex flex-col h-full relative">
-      {loading && <Spinner message="Updating students..." isVisible={true} />}
-      <div className="flex items-center gap-4 mb-6">
-        <button
-          onClick={() => setCurrentView("classList")}
-          className="p-2 rounded-full bg-gray-200 hover:bg-gray-300 transition-colors"
-          title="Back to Classes"
-        >
-          <img src={back} alt="back" className="w-5 h-5" />
-        </button>
-        <h2 className="text-3xl font-bold text-blue-800">{selectedClass?.name}</h2>
-      </div>
-
-      <div className="overflow-x-auto rounded-lg shadow-md bg-white border border-gray-100 flex-grow scrollbar-thin scrollbar-thumb-blue-300 scrollbar-track-blue-100">
-        <table className="min-w-full text-sm text-left text-gray-600">
-          <thead className="text-xs bg-blue-100 text-blue-800 uppercase tracking-wider">
-            <tr>
-              <th className="px-6 py-3">S. No.</th>
-              <th className="px-6 py-3">Name</th>
-              <th className="px-6 py-3">Roll No.</th>
-              <th className="px-6 py-3">Batch</th>
-              <th className="px-6 py-3">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {studentsInSelectedClass.length === 0 ? (
-                <tr>
-                    <td colSpan="5" className="px-6 py-4 text-center text-gray-500">No students in this class.</td>
-                </tr>
-            ) : (
-                studentsInSelectedClass.map((student, index) => (
-                    <tr key={student.rollNo} className="border-b hover:bg-gray-50 transition-colors">
-                        <td className="px-6 py-4 font-medium">{index + 1}</td>
-                        <td className="px-6 py-4">{student.name}</td>
-                        <td className="px-6 py-4">{student.rollNo}</td>
-                        <td className="px-6 py-4">{student.batch}</td>
-                        <td className="px-6 py-4">
-                            {/* Edit functionality would involve a modal or separate form */}
-                            <button
-                                className="ml-2 text-red-600 hover:underline px-2 py-1 rounded-md hover:bg-red-50 transition-colors"
-                                onClick={() => handleRemoveStudentFromExistingClass(student)}
-                                disabled={loading}
-                            >
-                                Remove
-                            </button>
-                        </td>
-                    </tr>
-                ))
-            )}
-          </tbody>
-        </table>
-      </div>
-      <div className="w-full bg-white p-6 rounded-xl shadow-md border border-gray-100 mt-6">
-        <h3 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b border-gray-200">Add Student to {selectedClass?.name}</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 my-4">
-          <div className="flex flex-col items-start">
-            <label htmlFor="add-student-name" className="font-semibold text-gray-700 mb-2">Name</label>
-            <input
-              type="text"
-              id="add-student-name"
-              placeholder="Enter Student name"
-              className="w-full px-3 py-2 rounded-lg border border-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-400 transition-shadow"
-              value={studentName}
-              onChange={handleStudentNameChange}
-            />
-          </div>
-          <div className="flex flex-col items-start">
-            <label htmlFor="add-student-rollno" className="font-semibold text-gray-700 mb-2">Roll No.</label>
-            <input
-              type="text"
-              id="add-student-rollno"
-              placeholder="Enter Roll No."
-              className="w-full px-3 py-2 rounded-lg border border-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-400 transition-shadow"
-              value={studentRollNo}
-              onChange={handleStudentRollNoChange}
-            />
-          </div>
-        </div>
-        <button
-          onClick={handleAddStudentToExistingClass}
-          className="mt-4 w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded-lg transition-colors shadow-md"
-          disabled={loading}
-        >
-          <Spinner size="small" color="white" isVisible={loading} />
-          <span className={loading ? 'opacity-0' : ''}>Add Student to {selectedClass?.name}</span>
-        </button>
-      </div>
-    </div>
-    </motion.div>
-    </AnimatePresence>
-    </>
-  );
-
-  const renderAddNewClass = () => (
-    <>
-    <AnimatePresence mode="wait">
-
-      <motion.div
-            key="AddNewClass-view"
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.3 }}
-            className="w-full h-full flex flex-col items-start justify-start relative"
-            >
-    <div className="w-full h-full flex flex-col items-start justify-start relative">
-        {loading && <Spinner message="Creating new class..." isVisible={true} />}
-        <div className="flex items-center gap-4 mb-6">
-            <button
-                onClick={() => setCurrentView("classList")}
-                className="p-2 rounded-full bg-gray-200 hover:bg-gray-300 transition-colors"
-                title="Back to Classes"
-                disabled={loading}
-            >
-                <img src={back} alt="back" className="w-5 h-5" />
-            </button>
-            <h2 className="text-3xl font-bold text-blue-800">Add New Class</h2>
-        </div>
-
-      <div className="w-full grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div className="flex flex-col items-start col-span-1">
-          <span className="font-semibold text-gray-700 mb-2">Year</span>
-          <select
-            name="year"
-            id="year"
-            className="w-full px-3 py-2 rounded-lg border border-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-400 transition-shadow"
-            value={newClassNameYear}
-            onChange={handleYearChange}
-            disabled={loading}
-          >
-            <option value="">-- Select Year --</option>
-            <option value="1">1st Year</option>
-            <option value="2">2nd Year</option>
-            <option value="3">3rd Year</option>
-            <option value="4">4th Year</option>
-          </select>
-        </div>
-        <div className="flex flex-col items-start col-span-1">
-          <span className="font-semibold text-gray-700 mb-2">Batch</span>
-          <input
-            type="text"
-            onChange={handleBatchChange}
-            value={newClassNameBatch}
-            placeholder="Ex: 2028"
-            className="w-full px-3 py-2 rounded-lg border border-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-400 transition-shadow"
-            maxLength="4"
-            disabled={loading}
-          />
-        </div>
-        <div className="flex flex-col items-start col-span-1">
-          <span className="font-semibold text-gray-700 mb-2">Section</span>
-          <input
-            type="text"
-            onChange={handleSectionChange}
-            value={newClassNameSection}
-            placeholder="Ex: A"
-            className="w-full uppercase px-3 py-2 rounded-lg border border-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-400 transition-shadow"
-            maxLength="1"
-            disabled={loading}
-          />
-        </div>
-      </div>
-
-      <div className="w-full grid grid-cols-1 md:grid-cols-3 gap-6 flex-grow">
-        <div className="col-span-1 bg-white p-6 rounded-xl shadow-md border border-gray-100 flex flex-col">
-          <h3 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b border-gray-200">Students to Add ({studentsToAddList.length})</h3>
-          <ul className="my-3 flex-grow overflow-y-auto space-y-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100 pr-2">
-            {studentsToAddList.length === 0 ? (
-              <div className="text-gray-500 text-center py-4">No students added yet.</div>
-            ) : (
-              studentsToAddList.map((student, index) => (
-                <li key={index} className="px-4 py-2 flex items-center justify-between bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
-                  <span className="text-base text-gray-700">{student.name} ({student.rollNo})</span>
-                  <button
-                    onClick={() => handleRemoveStudentFromNewClassList(student.rollNo)}
-                    className="p-1 rounded-full hover:bg-red-100 transition-colors"
-                    title="Remove Student"
-                    disabled={loading}
-                  >
-                    <img src={remove} alt="remove" className="w-5 h-5 opacity-70 hover:opacity-100" />
-                  </button>
-                </li>
-              ))
-            )}
-          </ul>
-        </div>
-
-        <div className="col-span-2 bg-white p-6 rounded-xl shadow-md border border-gray-100 flex flex-col justify-between">
-          <div>
-            <h3 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b border-gray-200">Add Students to New Class</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 my-4">
-              <div className="flex flex-col items-start">
-                <label htmlFor="student-name" className="font-semibold text-gray-700 mb-2">Name</label>
-                <input
-                  type="text"
-                  id="student-name"
-                  placeholder="Enter Student name"
-                  className="w-full px-3 py-2 rounded-lg border border-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-400 transition-shadow"
-                  value={studentName}
-                  onChange={handleStudentNameChange}
-                  disabled={loading}
-                />
-              </div>
-              <div className="flex flex-col items-start">
-                <label htmlFor="student-rollno" className="font-semibold text-gray-700 mb-2">Roll No.</label>
-                <input
-                  type="text"
-                  id="student-rollno"
-                  placeholder="Enter Roll No."
-                  className="w-full px-3 py-2 rounded-lg border border-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-400 transition-shadow"
-                  value={studentRollNo}
-                  onChange={handleStudentRollNoChange}
-                  disabled={loading}
-                />
-              </div>
-            </div>
-            <button
-              onClick={handleAddStudentToNewClassList}
-              className="mt-4 w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 rounded-lg transition-colors shadow-md"
-              disabled={loading}
-            >
-              <Spinner size="small" color="white" isVisible={loading} />
-              <span className={loading ? 'opacity-0' : ''}>Add Student to List</span>
-            </button>
-          </div>
-
-          <div className="w-full flex justify-between gap-4 pt-4 border-t border-gray-100 mt-6">
-            <button
-              onClick={() => setCurrentView("classList")}
-              className="flex-grow bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-3 rounded-lg transition-colors shadow-md"
-              disabled={loading}
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleCreateNewClass}
-              className="flex-grow bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg transition-colors shadow-md"
-              disabled={loading}
-            >
-              <Spinner size="small" color="white" isVisible={loading} />
-              <span className={loading ? 'opacity-0' : ''}>Create Class</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    </motion.div>
-
-    </AnimatePresence>
-    </>
-  );
 
   return (
-    <div className="w-full h-full flex flex-col">
-      {currentView === "classList" && renderClassList()}
-      {currentView === "studentList" && renderStudentList()}
-      {currentView === "addNewClass" && renderAddNewClass()}
+    <div className="w-full h-full flex flex-col items-start justify-start">
+      <AnimatePresence>
+        {loading && (
+          <motion.div
+            key="spinner"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="absolute inset-0 z-50 flex items-center justify-center bg-white bg-opacity-75"
+          >
+            <Spinner message="Creating class..." isVisible={true} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <h2 className="text-2xl font-semibold text-blue-700 mb-6">Manage Classes</h2>
+
+      {/* Create New Class Section */}
+      <div className="w-full bg-white rounded-xl shadow-md p-6 mb-8">
+        <h3 className="text-xl font-semibold text-gray-800 mb-4">Create New Class</h3>
+        <form onSubmit={handleCreateClass} className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label htmlFor="className" className="block text-sm font-medium text-gray-700 mb-2">
+                Class Name *
+              </label>
+              <input
+                type="text"
+                id="className"
+                value={className}
+                onChange={(e) => setClassName(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="e.g., Mathematics 101"
+                required
+              />
+            </div>
+            
+            <div>
+              <label htmlFor="subject" className="block text-sm font-medium text-gray-700 mb-2">
+                Subject
+              </label>
+              <input
+                type="text"
+                id="subject"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="e.g., Advanced Mathematics"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Select Students ({selectedStudents.length} selected)
+            </label>
+            <div className="border border-gray-300 rounded-lg p-3 max-h-48 overflow-y-auto">
+              {allStudents.length === 0 ? (
+                <p className="text-gray-500 text-center py-4">No students found</p>
+              ) : (
+                <div className="space-y-2">
+                  {allStudents.map((student) => {
+                    const isSelected = selectedStudents.some(s => s.uid === student.uid);
+                    return (
+                      <label key={student.uid} className="flex items-center space-x-3 cursor-pointer hover:bg-gray-50 p-2 rounded">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => handleStudentSelection(student)}
+                          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                        />
+                        <div className="flex-1">
+                          <span className="text-sm font-medium text-gray-900">
+                            {student.fullName || student.displayName || 'Unknown Name'}
+                          </span>
+                          <span className="text-xs text-gray-500 ml-2">
+                            Roll: {student.rollNo || 'N/A'}
+                          </span>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loading ? 'Creating...' : 'Create Class'}
+          </button>
+        </form>
+      </div>
+
+      {/* Student Enrollment Management Section */}
+      <div className="w-full bg-white rounded-xl shadow-md p-6 mb-8">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-xl font-semibold text-gray-800">Student Enrollments</h3>
+          <button
+            onClick={() => setShowEnrollmentSection(!showEnrollmentSection)}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+          >
+            <Users size={16} />
+            {showEnrollmentSection ? 'Hide' : 'Manage'} Enrollments
+          </button>
+        </div>
+        
+        {showEnrollmentSection && (
+          <div className="space-y-4">
+            {/* Class Selection */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Select Class to Manage
+              </label>
+              <select
+                value={selectedClassForEnrollment?.id || ''}
+                onChange={(e) => {
+                  const selectedClass = classes.find(c => c.id === e.target.value);
+                  setSelectedClassForEnrollment(selectedClass);
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">-- Select a class --</option>
+                {classes.map(cls => (
+                  <option key={cls.id} value={cls.id}>{cls.name}</option>
+                ))}
+              </select>
+            </div>
+
+            {selectedClassForEnrollment && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Available Students */}
+                <div className="border border-gray-200 rounded-lg p-4">
+                  <h4 className="font-medium text-gray-800 mb-3 flex items-center gap-2">
+                    <Plus size={16} className="text-green-600" />
+                    Available Students ({getAvailableStudents().length})
+                  </h4>
+                  <div className="max-h-64 overflow-y-auto space-y-2">
+                    {getAvailableStudents().length === 0 ? (
+                      <p className="text-gray-500 text-center py-4 text-sm">
+                        All students are enrolled in this class
+                      </p>
+                    ) : (
+                      getAvailableStudents().map(student => (
+                        <div key={student.id} className="flex items-center justify-between p-2 border border-gray-100 rounded hover:bg-gray-50">
+                          <div>
+                            <p className="font-medium text-sm">{student.fullName || 'No Name'}</p>
+                            <p className="text-xs text-gray-600">Roll: {student.rollNo || 'N/A'}</p>
+                          </div>
+                          <button
+                            onClick={() => enrollStudent(student.id, selectedClassForEnrollment.id, 'enroll')}
+                            disabled={enrollmentLoading}
+                            className="px-2 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700 disabled:opacity-50 flex items-center gap-1"
+                          >
+                            <Plus size={12} />
+                            Enroll
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Enrolled Students */}
+                <div className="border border-gray-200 rounded-lg p-4">
+                  <h4 className="font-medium text-gray-800 mb-3 flex items-center gap-2">
+                    <Users size={16} className="text-blue-600" />
+                    Enrolled Students ({getEnrolledStudents().length})
+                  </h4>
+                  <div className="max-h-64 overflow-y-auto space-y-2">
+                    {getEnrolledStudents().length === 0 ? (
+                      <p className="text-gray-500 text-center py-4 text-sm">
+                        No students enrolled yet
+                      </p>
+                    ) : (
+                      getEnrolledStudents().map(student => (
+                        <div key={student.id} className="flex items-center justify-between p-2 border border-gray-100 rounded bg-green-50">
+                          <div>
+                            <p className="font-medium text-sm">{student.fullName || 'No Name'}</p>
+                            <p className="text-xs text-gray-600">Roll: {student.rollNo || 'N/A'}</p>
+                          </div>
+                          <button
+                            onClick={() => enrollStudent(student.id, selectedClassForEnrollment.id, 'unenroll')}
+                            disabled={enrollmentLoading}
+                            className="px-2 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700 disabled:opacity-50 flex items-center gap-1"
+                          >
+                            <Minus size={12} />
+                            Remove
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {enrollmentLoading && (
+              <div className="flex items-center justify-center py-4">
+                <Spinner message="Updating enrollment..." isVisible={true} size="small" />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Existing Classes List */}
+      <div className="w-full bg-white rounded-xl shadow-md p-6">
+        <h3 className="text-xl font-semibold text-gray-800 mb-4">Your Classes ({classes.length})</h3>
+        {classes.length === 0 ? (
+          <p className="text-gray-500 text-center py-8">No classes created yet.</p>
+        ) : (
+          <div className="space-y-4">
+            {classes.map((cls) => (
+              <div key={cls.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <h4 className="text-lg font-semibold text-gray-800">{cls.name}</h4>
+                    {cls.subject && (
+                      <p className="text-sm text-gray-600">{cls.subject}</p>
+                    )}
+                    <p className="text-xs text-gray-500 mt-1">
+                      {cls.students?.length || 0} students • 
+                      Enrolled: {cls.enrollmentCount || 0} • 
+                      Created: {new Date(cls.createdAt).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleDeleteClass(cls.id, cls.name)}
+                    disabled={deleteLoading === cls.id}
+                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                    title="Delete Class"
+                  >
+                    {deleteLoading === cls.id ? (
+                      <Spinner size="small" isVisible={true} />
+                    ) : (
+                      <Trash2 size={18} />
+                    )}
+                  </button>
+                </div>
+                
+                {cls.students && cls.students.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-gray-100">
+                    <p className="text-sm text-gray-600 mb-2">Students:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {cls.students.slice(0, 5).map((student, index) => (
+                        <span key={index} className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
+                          {student.name}
+                        </span>
+                      ))}
+                      {cls.students.length > 5 && (
+                        <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">
+                          +{cls.students.length - 5} more
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
