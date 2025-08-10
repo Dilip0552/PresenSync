@@ -809,7 +809,18 @@ const markAttendance = useCallback(async () => {
 
 
     return (
-        <div className="min-h-full bg-gradient-to-br from-indigo-50 to-purple-100 flex items-center justify-center p-4 font-inter">
+        <>
+            <AnimatePresence mode="wait">
+        
+              <motion.div
+                    key="dashboardHome-view"
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    transition={{ duration: 0.3 }}
+                    className="w-full h-full flex flex-col items-start justify-start relative"
+                    >
+        <div className="min-h-full bg-gradient-to-br from-indigo-50 to-purple-100 flex items-center justify-center p-4 font-inter w-full">
             <div className="bg-white rounded-3xl shadow-2xl p-4 sm:p-8 w-full max-w-4xl transform transition-all duration-500 ease-in-out scale-95 md:scale-100 relative"> {/* Adjusted padding */}
                 <h2 className="text-2xl sm:text-3xl font-bold text-center text-indigo-800 mb-6 sm:mb-8">Mark Your Attendance</h2> {/* Adjusted font size */}
 
@@ -1028,6 +1039,9 @@ const markAttendance = useCallback(async () => {
                 </AnimatePresence>
             </div>
         </div>
+        </motion.div>
+        </AnimatePresence>
+        </>
     );
 };
 
