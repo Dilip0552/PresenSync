@@ -206,9 +206,102 @@ async def mark_attendance(
         
         logger.info(f"Using app_id: {app_id}")
 
-        # [Keep all your existing validation logic - QR timestamp, session validation, GPS check, etc.]
-        # ... (keeping all the existing validation code)
+        # 0. Validate QR Code Timestamp Liveness - FIXED TIMEZONE HANDLING
+        QR_LIVENESS_WINDOW_SECONDS = 300  # 5 minutes
+        
+        try:
+            qr_generated_time = parse_datetime_with_timezone(request_data.timestamp)
+            logger.info(f"QR generated time (UTC): {qr_generated_time}")
+        except ValueError as e:
+            logger.error(f"Invalid QR timestamp format: {request_data.timestamp}, error: {e}")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid QR timestamp format: {request_data.timestamp}")
+            
+        current_server_time = get_utc_now()
+        time_diff = (current_server_time - qr_generated_time).total_seconds()
+        logger.info(f"Time difference: {time_diff} seconds")
 
+        if time_diff > QR_LIVENESS_WINDOW_SECONDS:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"QR Code expired. Time difference: {time_diff:.1f} seconds")
+
+        # 1. Validate Session Details - FIXED TIMEZONE HANDLING
+        session_path = f"artifacts/{app_id}/users/{request_data.teacherId}/sessions"
+        logger.info(f"Looking for session in path: {session_path}/{request_data.sessionId}")
+        
+        try:
+            session_ref = db.collection(session_path).document(request_data.sessionId)
+            session_doc = session_ref.get()
+            
+            if not session_doc.exists:
+                logger.error(f"Session not found: {session_path}/{request_data.sessionId}")
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found.")
+
+            session_data = session_doc.to_dict()
+            logger.info(f"Session data found: status={session_data.get('status')}")
+            
+        except Exception as e:
+            logger.error(f"Error fetching session: {e}")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error fetching session: {e}")
+
+        if session_data.get('status') != 'active':
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Session is not active. Current status: {session_data.get('status')}")
+
+        # Parse session times - FIXED TIMEZONE HANDLING
+        try:
+            session_start_str = session_data['startTime']
+            logger.info(f"Session start time string: {session_start_str}")
+            
+            session_start_time = parse_datetime_with_timezone(session_start_str)
+            logger.info(f"Parsed session start time (UTC): {session_start_time}")
+        except (ValueError, KeyError) as e:
+            logger.error(f"Invalid session start time: {e}")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid session start time format.")
+
+        duration_minutes = session_data.get('duration', 60)
+        if session_data.get('durationUnit') == 'hrs':
+            duration_minutes *= 60
+        session_end_time = session_start_time + timedelta(minutes=duration_minutes)
+        
+        logger.info(f"Session window (UTC): {session_start_time} to {session_end_time}")
+        logger.info(f"Current server time (UTC): {current_server_time}")
+        
+        # More lenient time check for testing
+        if current_server_time < (session_start_time - timedelta(minutes=5)):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Session has not started yet.")
+        
+        if current_server_time > (session_end_time + timedelta(minutes=5)):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Session has ended.")
+
+        # 2. GPS Location Check
+        classroom_lat = session_data.get('classroomLat')
+        classroom_lon = session_data.get('classroomLon')
+        GPS_RADIUS_METERS = 200
+
+        if classroom_lat is not None and classroom_lon is not None:
+            try:
+                distance = haversine_distance(classroom_lat, classroom_lon, request_data.latitude, request_data.longitude)
+                logger.info(f"GPS distance: {distance:.2f}m")
+                
+                if distance > GPS_RADIUS_METERS:
+                    logger.warning(f"GPS check failed: {distance:.2f}m > {GPS_RADIUS_METERS}m")
+                    # For testing, make this a warning instead of hard error
+                    # raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Outside classroom range. Distance: {distance:.2f}m")
+                else:
+                    logger.info("GPS check passed")
+            except Exception as e:
+                logger.error(f"GPS calculation error: {e}")
+        else:
+            logger.warning("Classroom coordinates missing, skipping GPS check")
+
+        # 3. Check for Duplicate Attendance
+        # Check in the public collection
+        attendance_records_ref = db.collection(f"artifacts/{app_id}/public/data/attendanceRecords")
+        existing_query = attendance_records_ref.where("sessionId", "==", request_data.sessionId).where("studentId", "==", student_id).limit(1)
+        existing_docs = list(existing_query.stream())
+        
+        if len(existing_docs) > 0:
+            logger.info("Duplicate attendance detected.")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Attendance already marked for this session.")
+        
         # 4. Mark Attendance with a Firestore Batch
         # Prepare the attendance data
         attendance_data = {
@@ -239,18 +332,18 @@ async def mark_attendance(
         student_ref = db.collection(f"artifacts/{app_id}/users/{student_id}/attendanceRecords").document()
         batch.set(student_ref, attendance_data)
         
-        # FIXED: Reference for the teacher's session-specific record - ensure document ID is studentId
+        # Reference for the teacher's session-specific record - ensure document ID is studentId
         teacher_session_ref = db.collection(f"artifacts/{app_id}/users/{request_data.teacherId}/sessions/{request_data.sessionId}/attendance").document(student_id)
         batch.set(teacher_session_ref, attendance_data)
         
-        # ADDITIONAL: Update session totals immediately after marking attendance
+        # Update session totals immediately after marking attendance
         session_ref = db.collection(f"artifacts/{app_id}/users/{request_data.teacherId}/sessions").document(request_data.sessionId)
         
         # Get current session data to update totals
-        session_doc = session_ref.get()
-        if session_doc.exists:
-            session_data = session_doc.to_dict()
-            current_total_present = session_data.get('totalPresent', 0)
+        session_doc_current = session_ref.get()
+        if session_doc_current.exists:
+            session_data_current = session_doc_current.to_dict()
+            current_total_present = session_data_current.get('totalPresent', 0)
             
             # Increment totalPresent count
             batch.update(session_ref, {
@@ -271,7 +364,7 @@ async def mark_attendance(
     except Exception as e:
         logger.error(f"Unexpected error in mark_attendance: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Internal server error: {str(e)}")
-
+    
 @app.get("/admin/users", summary="Get all user profiles (Admin only)")
 async def get_all_users(current_admin_user: dict = Depends(get_current_admin_user)):
     try:
