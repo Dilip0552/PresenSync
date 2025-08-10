@@ -127,7 +127,7 @@ function Sidebar({ activeTab, setActiveTab, setShowSettings, handleLogout, userR
         style={{ minWidth: '256px' }} /* Ensure fixed width on desktop */
       >
         <div className="flex items-center mb-10 mt-4 justify-center">
-          <img src="/public/vite.svg" alt="PresenSync Logo" className="h-10 w-10 mr-3" />
+          {/* <img src="/public/vite.svg" alt="PresenSync Logo" className="h-10 w-10 mr-3" /> */}
           <h1 className="text-2xl font-bold">PresenSync</h1>
         </div>
 
