@@ -23,11 +23,11 @@ function AttendanceReportsTab({ totalSessions, classes, addNotification }) {
     (session) => session.classId === selectedClass?.id
   ).sort((a, b) => new Date(b.startTime) - new Date(a.startTime)); // Sort by most recent
 
-  // Fetch attendance records for the selected session
+  // Fetch attendance records for the selected session only when viewing details
   useEffect(() => {
     let unsubscribe;
 
-    if (db && userId && selectedSession?.id) {
+    if (db && userId && selectedSession?.id && currentView === 'sessionDetails') {
       setLoading(true);
       try {
         const attendanceCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/sessions/${selectedSession.id}/attendance`);
@@ -57,7 +57,7 @@ function AttendanceReportsTab({ totalSessions, classes, addNotification }) {
         unsubscribe();
       }
     };
-  }, [db, userId, selectedSession, appId, addNotification]);
+  }, [db, userId, selectedSession, appId, addNotification, currentView]);
 
   const handleSelectClass = (cls) => {
     setSelectedClass(cls);
@@ -134,8 +134,9 @@ function AttendanceReportsTab({ totalSessions, classes, addNotification }) {
               </tr>
             ) : (
               filteredSessionsForClass.map((session) => {
-                const totalPresent = attendanceRecords.filter(rec => rec.sessionId === session.id && rec.status === 'present').length;
-                const totalStudentsInClass = selectedClass?.students?.length || 0;
+                // FIXED: Use the pre-calculated totals from the session document
+                const totalPresent = session.totalPresent || 0;
+                const totalStudentsInClass = session.totalStudents || 0;
                 const totalAbsent = totalStudentsInClass - totalPresent;
                 const presentPercent = totalStudentsInClass > 0 ? ((totalPresent / totalStudentsInClass) * 100).toFixed(0) : 0;
 
@@ -201,8 +202,7 @@ function AttendanceReportsTab({ totalSessions, classes, addNotification }) {
               </tr>
             ) : (
               selectedClass?.students.map((student, index) => {
-                // CORRECTED: Match attendance record by student's Firebase UID, not rollNo
-                const record = attendanceRecords.find(rec => rec.studentId === student.uid); 
+                const record = attendanceRecords.find(rec => rec.studentId === student.uid);
                 const status = record ? 'Present' : 'Absent';
                 const timeMarked = record?.timestamp?.toDate()?.toLocaleTimeString() || '-';
 
