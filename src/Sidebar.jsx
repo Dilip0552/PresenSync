@@ -62,7 +62,7 @@ function Sidebar({ activeTab, setActiveTab, setShowSettings, handleLogout, userR
       >
         <div className="flex items-center mb-10 mt-4 justify-between">
           <div className="flex items-center">
-            <img src="/public/vite.svg" alt="PresenSync Logo" className="h-10 w-10 mr-3" />
+            {/* <img src="/public/vite.svg" alt="PresenSync Logo" className="h-10 w-10 mr-3" /> */}
             <h1 className="text-2xl font-bold">PresenSync</h1>
           </div>
           <button

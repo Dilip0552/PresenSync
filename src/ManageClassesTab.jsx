@@ -2,7 +2,10 @@ import React, { useState, useEffect, useCallback } from "react";
 import { collection, addDoc, deleteDoc, doc, updateDoc, arrayUnion, arrayRemove, onSnapshot, getDoc } from "firebase/firestore";
 import { useFirebase } from './FirebaseContext';
 import Spinner from "./Spinner";
-
+import next from "./assets/next.png"
+import back from "./assets/back.png"
+import deleteimg from "./assets/delete.png"
+import remove from "./assets/remove.png"
 function ManageClassesTab({ classes, setClasses, addNotification }) {
   const [currentView, setCurrentView] = useState("classList"); // "classList", "studentList", "addNewClass"
   const [selectedClass, setSelectedClass] = useState(null); // Stores the class object currently being viewed
@@ -276,7 +279,7 @@ function ManageClassesTab({ classes, setClasses, addNotification }) {
                  <span className="text-sm text-gray-500">
                     Students: {(myclass.students || []).length}
                  </span>
-                <img className="w-4 h-4 opacity-60 group-hover:opacity-100 transition-opacity" src="/src/assets/next.png" alt="view" />
+                <img className="w-4 h-4 opacity-60 group-hover:opacity-100 transition-opacity" src={next} alt="view" />
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -285,7 +288,7 @@ function ManageClassesTab({ classes, setClasses, addNotification }) {
                   className="p-2 rounded-full bg-gray-100 hover:bg-red-100 transition-colors"
                   title="Delete Class"
                 >
-                  <img src="/src/assets/delete.png" alt="delete" className="w-5 h-5 opacity-70 hover:opacity-100" />
+                  <img src={deleteimg} alt="delete" className="w-5 h-5 opacity-70 hover:opacity-100" />
                 </button>
               </div>
             </div>
@@ -320,7 +323,7 @@ function ManageClassesTab({ classes, setClasses, addNotification }) {
           className="p-2 rounded-full bg-gray-200 hover:bg-gray-300 transition-colors"
           title="Back to Classes"
         >
-          <img src="/src/assets/back.png" alt="back" className="w-5 h-5" />
+          <img src={back} alt="back" className="w-5 h-5" />
         </button>
         <h2 className="text-3xl font-bold text-blue-800">{selectedClass?.name}</h2>
       </div>
@@ -412,7 +415,7 @@ function ManageClassesTab({ classes, setClasses, addNotification }) {
                 title="Back to Classes"
                 disabled={loading}
             >
-                <img src="/src/assets/back.png" alt="back" className="w-5 h-5" />
+                <img src={back} alt="back" className="w-5 h-5" />
             </button>
             <h2 className="text-3xl font-bold text-blue-800">Add New Class</h2>
         </div>
@@ -477,7 +480,7 @@ function ManageClassesTab({ classes, setClasses, addNotification }) {
                     title="Remove Student"
                     disabled={loading}
                   >
-                    <img src="/src/assets/remove.png" alt="remove" className="w-5 h-5 opacity-70 hover:opacity-100" />
+                    <img src={remove} alt="remove" className="w-5 h-5 opacity-70 hover:opacity-100" />
                   </button>
                 </li>
               ))

@@ -4,7 +4,7 @@ import { collection, query, onSnapshot, doc, updateDoc, deleteDoc } from 'fireba
 import { useFirebase } from './FirebaseContext';
 import { signOut } from 'firebase/auth'; // Only signOut is needed client-side for admin
 import Spinner from './Spinner';
-
+import user from "./assets/user.png"
 // Admin Overview Component
 const AdminOverview = ({ stats, recentActivities }) => {
   return (
@@ -424,7 +424,7 @@ function AdminDashboard({ addNotification }) {
           <div className="flex items-center space-x-2 sm:space-x-4">
             <span className="text-xs sm:text-base text-gray-700 hidden sm:block">Admin User</span>
             <img
-              src="/src/assets/user.png" // Placeholder image for admin profile
+              src={user} // Placeholder image for admin profile
               alt="Admin Profile"
               className="w-8 h-8 sm:w-10 sm:h-10 rounded-full border-2 border-blue-400"
             />
