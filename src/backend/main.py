@@ -223,19 +223,19 @@ async def mark_attendance(
         if time_diff > QR_LIVENESS_WINDOW_SECONDS:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"QR Code expired. Time difference: {time_diff:.1f} seconds")
 
-        # 1. Validate Session Details and Check for Duplicates in a Transaction
+        # 1. Check for Duplicate Attendance before starting the transaction
         session_ref = db.collection(f"artifacts/{app_id}/users/{request_data.teacherId}/sessions").document(request_data.sessionId)
         attendance_teacher_ref = session_ref.collection('attendance').document(student_id)
+        
+        # Check if the document exists first
+        if attendance_teacher_ref.get().exists:
+            logger.info("Duplicate attendance detected.")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Attendance already marked for this session.")
 
+        # Now, perform the rest of the logic inside a transaction
         try:
-            # Use a transaction to ensure atomicity
             @firestore.transactional
-            def update_session_in_transaction(transaction, session_ref, attendance_teacher_ref, attendance_data):
-                # Check for duplicate attendance within the transaction
-                if transaction.get(attendance_teacher_ref).exists:
-                    logger.info("Duplicate attendance detected within transaction.")
-                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Attendance already marked for this session.")
-
+            def update_session_and_create_records(transaction):
                 session_doc = transaction.get(session_ref)
                 if not session_doc.exists:
                     logger.error(f"Session not found: {session_ref.path}")
@@ -256,6 +256,24 @@ async def mark_attendance(
                     'totalAbsent': new_total_absent
                 })
 
+                # Prepare attendance data for the transaction
+                attendance_data = {
+                    "sessionId": request_data.sessionId,
+                    "classId": request_data.classId,
+                    "className": request_data.className,
+                    "teacherId": request_data.teacherId,
+                    "studentId": student_id,
+                    "studentName": student_profile_data.get('fullName', 'Unknown Student'),
+                    "studentRollNo": student_profile_data.get('rollNo', 'N/A'),
+                    "timestamp": firestore.SERVER_TIMESTAMP,
+                    "status": "present",
+                    "verified_latitude": request_data.latitude,
+                    "verified_longitude": request_data.longitude,
+                    "faceMatchConfidence": request_data.faceMatchConfidence,
+                    "ipAddress": request_data.ipAddress,
+                    "qrTimestamp": qr_generated_time.isoformat(),
+                }
+                
                 # Create attendance records within the transaction
                 public_ref = db.collection(f"artifacts/{app_id}/public/data/attendanceRecords").document()
                 student_ref = db.collection(f"artifacts/{app_id}/users/{student_id}/attendanceRecords").document()
@@ -263,10 +281,10 @@ async def mark_attendance(
                 transaction.set(public_ref, attendance_data)
                 transaction.set(student_ref, attendance_data)
                 transaction.set(attendance_teacher_ref, attendance_data)
-
+            
             # --- GPS Location Check ---
-            classroom_lat = db.collection(f"artifacts/{app_id}/users/{request_data.teacherId}/sessions").document(request_data.sessionId).get().to_dict().get('classroomLat')
-            classroom_lon = db.collection(f"artifacts/{app_id}/users/{request_data.teacherId}/sessions").document(request_data.sessionId).get().to_dict().get('classroomLon')
+            classroom_lat = session_ref.get().to_dict().get('classroomLat')
+            classroom_lon = session_ref.get().to_dict().get('classroomLon')
             GPS_RADIUS_METERS = 200
 
             if classroom_lat is not None and classroom_lon is not None:
@@ -284,27 +302,9 @@ async def mark_attendance(
             else:
                 logger.warning("Classroom coordinates missing, skipping GPS check")
 
-            # Prepare attendance data for the transaction
-            attendance_data = {
-                "sessionId": request_data.sessionId,
-                "classId": request_data.classId,
-                "className": request_data.className,
-                "teacherId": request_data.teacherId,
-                "studentId": student_id,
-                "studentName": student_profile_data.get('fullName', 'Unknown Student'),
-                "studentRollNo": student_profile_data.get('rollNo', 'N/A'),
-                "timestamp": firestore.SERVER_TIMESTAMP,
-                "status": "present",
-                "verified_latitude": request_data.latitude,
-                "verified_longitude": request_data.longitude,
-                "faceMatchConfidence": request_data.faceMatchConfidence,
-                "ipAddress": request_data.ipAddress,
-                "qrTimestamp": qr_generated_time.isoformat(),
-            }
+            # Run the transaction
+            db.transaction(update_session_and_create_records)
 
-            transaction = db.transaction()
-            update_session_in_transaction(transaction, session_ref, attendance_teacher_ref, attendance_data)
-        
         except HTTPException:
             raise
         except Exception as e:
