@@ -268,7 +268,7 @@ function ManageClassesTab({ classes, setClasses, addNotification }) {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
             transition={{ duration: 0.3 }}
-            className="w-full h-full flex flex-col items-start justify-start"
+            className="w-full h-full flex flex-col items-start justify-start relative"
             >
     <div className="flex flex-col h-full relative">
       {loading && <Spinner message="Loading classes..." isVisible={true} />}
