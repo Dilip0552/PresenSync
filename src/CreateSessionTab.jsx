@@ -20,7 +20,8 @@ function CreateSessionTab({ classes, addNotification }) {
   const [isFetchingIp, setIsFetchingIp] = useState(false);
 
   const { db, userId } = useFirebase();
-  const appId = "presensync-app"
+  const appId = typeof __app_id !== 'undefined' ? __app_id : 'presensync-app';
+
 
   const fetchTeacherIp = async () => {
     setIsFetchingIp(true);
