@@ -151,7 +151,7 @@ function AttendanceReportsTab({ totalSessions, classes, addNotification }) {
           className="p-2 rounded-full bg-gray-200 hover:bg-gray-300 transition-colors"
           title="Back to Classes"
         >
-          <img src="/src/assets/back.png" alt="back" className="w-5 h-5" />
+          <img src="/assets/back.png" alt="back" className="w-5 h-5" />
         </button>
         <h2 className="text-3xl font-bold text-blue-800">{selectedClass?.name} Sessions</h2>
       </div>
