@@ -226,13 +226,13 @@ function AttendanceReportsTab({ totalSessions, classes, addNotification }) {
       </div>
 
       {/* Debug Information */}
-      <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+      {/* <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
         <p className="text-sm text-blue-700">
           <strong>Debug Info:</strong> Found {attendanceRecords.length} attendance records | 
           Session ID: {selectedSession?.id} | 
           Expected Students: {selectedClass?.students?.length || 0}
         </p>
-      </div>
+      </div> */}
 
       <div className="overflow-x-auto rounded-lg shadow-md bg-white border border-gray-100 flex-grow scrollbar-thin scrollbar-thumb-blue-300 scrollbar-track-blue-100">
         <table className="min-w-full text-sm text-left text-gray-600">
