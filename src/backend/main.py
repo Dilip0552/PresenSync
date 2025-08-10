@@ -235,7 +235,7 @@ async def mark_attendance(
         # Now, perform the rest of the logic inside a transaction
         try:
             @firestore.transactional
-            def update_session_and_create_records(transaction):
+            def update_session_and_create_records(transaction, session_ref, student_id, student_profile_data, request_data, qr_generated_time):
                 session_doc = transaction.get(session_ref)
                 if not session_doc.exists:
                     logger.error(f"Session not found: {session_ref.path}")
@@ -303,7 +303,7 @@ async def mark_attendance(
                 logger.warning("Classroom coordinates missing, skipping GPS check")
 
             # Run the transaction
-            db.transaction(update_session_and_create_records)
+            db.transaction(lambda transaction: update_session_and_create_records(transaction, session_ref, student_id, student_profile_data, request_data, qr_generated_time))
 
         except HTTPException:
             raise
