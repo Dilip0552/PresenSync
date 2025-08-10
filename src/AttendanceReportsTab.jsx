@@ -6,6 +6,7 @@ import { useFirebase } from './FirebaseContext';
 import Spinner from "./Spinner";
 import back from "./assets/back.png"
 import next from "./assets/next.png"
+import { AnimatePresence, motion } from "framer-motion";
 function AttendanceReportsTab({ totalSessions, classes, addNotification }) {
   const [currentView, setCurrentView] = useState("classList");
   const [selectedClass, setSelectedClass] = useState(null);
