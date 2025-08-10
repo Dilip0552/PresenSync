@@ -6,6 +6,7 @@ import next from "./assets/next.png"
 import back from "./assets/back.png"
 import deleteimg from "./assets/delete.png"
 import remove from "./assets/remove.png"
+import { AnimatePresence, motion } from "framer-motion";
 function ManageClassesTab({ classes, setClasses, addNotification }) {
   const [currentView, setCurrentView] = useState("classList"); // "classList", "studentList", "addNewClass"
   const [selectedClass, setSelectedClass] = useState(null); // Stores the class object currently being viewed
@@ -260,6 +261,16 @@ function ManageClassesTab({ classes, setClasses, addNotification }) {
   const renderClassList = () => (
     <div className="flex flex-col h-full relative">
       {loading && <Spinner message="Loading classes..." isVisible={true} />}
+      <AnimatePresence mode="wait">
+
+      <motion.div
+            key="form-view"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            transition={{ duration: 0.3 }}
+            className="w-full h-full flex flex-col items-start justify-start"
+            >
       <h1 className="text-2xl font-semibold mb-6 text-blue-700">Active Classes</h1>
       <div className="flex flex-col items-center flex-grow overflow-y-auto gap-4 scrollbar-thin scrollbar-thumb-blue-300 scrollbar-track-blue-100 pr-2">
         {classes.length === 0 ? (
@@ -267,7 +278,7 @@ function ManageClassesTab({ classes, setClasses, addNotification }) {
         ) : (
           classes.map((myclass) => (
             <div
-              key={myclass.id}
+            key={myclass.id}
               className="w-full md:w-2/3 bg-white hover:bg-blue-50 border border-blue-200 rounded-xl px-6 py-4 shadow-sm cursor-pointer flex justify-between items-center transition-all duration-200 group"
               onClick={() => {
                 setSelectedClass(myclass);
@@ -311,6 +322,8 @@ function ManageClassesTab({ classes, setClasses, addNotification }) {
         <Spinner size="small" color="white" isVisible={loading} />
         <span className={loading ? 'opacity-0' : ''}>+ Add New Class</span>
       </button>
+      </motion.div>
+        </AnimatePresence>
     </div>
   );
 
