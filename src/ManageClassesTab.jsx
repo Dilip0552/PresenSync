@@ -435,6 +435,17 @@ function ManageClassesTab({ classes, setClasses, addNotification }) {
   );
 
   const renderAddNewClass = () => (
+    <>
+    <AnimatePresence mode="wait">
+
+      <motion.div
+            key="AddNewClass-view"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            transition={{ duration: 0.3 }}
+            className="w-full h-full flex flex-col items-start justify-start relative"
+            >
     <div className="w-full h-full flex flex-col items-start justify-start relative">
         {loading && <Spinner message="Creating new class..." isVisible={true} />}
         <div className="flex items-center gap-4 mb-6">
@@ -576,6 +587,11 @@ function ManageClassesTab({ classes, setClasses, addNotification }) {
         </div>
       </div>
     </div>
+
+    </motion.div>
+
+    </AnimatePresence>
+    </>
   );
 
   return (
