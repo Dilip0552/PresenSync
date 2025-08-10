@@ -4,7 +4,8 @@ import React, { useState, useEffect, useCallback } from "react";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { useFirebase } from './FirebaseContext';
 import Spinner from "./Spinner";
-
+import back from "./assets/back.png"
+import next from "./assets/next.png"
 function AttendanceReportsTab({ totalSessions, classes, addNotification }) {
   const [currentView, setCurrentView] = useState("classList");
   const [selectedClass, setSelectedClass] = useState(null);
@@ -135,7 +136,7 @@ function AttendanceReportsTab({ totalSessions, classes, addNotification }) {
             onClick={() => handleSelectClass(cls)}
           >
             <span className="text-lg font-medium text-gray-700">{cls.name}</span>
-            <img className="w-4 h-4 opacity-60 group-hover:opacity-100 transition-opacity" src="/src/assets/next.png" alt="view" />
+            <img className="w-4 h-4 opacity-60 group-hover:opacity-100 transition-opacity" src={next} alt="view" />
           </div>
         ))
       )}
@@ -151,7 +152,7 @@ function AttendanceReportsTab({ totalSessions, classes, addNotification }) {
           className="p-2 rounded-full bg-gray-200 hover:bg-gray-300 transition-colors"
           title="Back to Classes"
         >
-          <img src="/assets/back.png" alt="back" className="w-5 h-5" />
+          <img src={back} alt="back" className="w-5 h-5" />
         </button>
         <h2 className="text-3xl font-bold text-blue-800">{selectedClass?.name} Sessions</h2>
       </div>
@@ -218,7 +219,7 @@ function AttendanceReportsTab({ totalSessions, classes, addNotification }) {
           className="p-2 rounded-full bg-gray-200 hover:bg-gray-300 transition-colors"
           title="Back to Sessions"
         >
-          <img src="/src/assets/back.png" alt="back" className="w-5 h-5" />
+          <img src={back} alt="back" className="w-5 h-5" />
         </button>
         <h2 className="text-3xl font-bold text-blue-800">
           {selectedClass?.name} - {new Date(selectedSession?.startTime).toLocaleString()}
