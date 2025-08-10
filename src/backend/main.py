@@ -293,62 +293,61 @@ async def mark_attendance(
             logger.warning("Classroom coordinates missing, skipping GPS check")
 
         # 3. Check for Duplicate Attendance
-        try:
-            attendance_records_ref = db.collection(f"artifacts/{app_id}/public/data/attendanceRecords")
-            existing_query = attendance_records_ref.where("sessionId", "==", request_data.sessionId).where("studentId", "==", student_id).limit(1)
-            existing_docs = list(existing_query.stream())
-            
-            logger.info(f"Duplicate check: found {len(existing_docs)} existing records")
-
-            if len(existing_docs) > 0:
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Attendance already marked for this session.")
-                
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error checking for duplicate attendance: {e}")
-            logger.warning("Proceeding without duplicate check due to error")
-
-        # 4. Mark Attendance
-        try:
-            attendance_data = {
-                "sessionId": request_data.sessionId,
-                "classId": request_data.classId,
-                "className": request_data.className,
-                "teacherId": request_data.teacherId,
-                "studentId": student_id,
-                "studentName": student_profile_data.get('fullName', 'Unknown Student'),
-                "studentRollNo": student_profile_data.get('rollNo', 'N/A'),
-                "timestamp": get_utc_now().isoformat(),  # Use timezone-aware UTC timestamp
-                "status": "present",
-                "verified_latitude": request_data.latitude,
-                "verified_longitude": request_data.longitude,
-                "faceMatchConfidence": request_data.faceMatchConfidence,
-                "ipAddress": request_data.ipAddress,
-                "qrTimestamp": qr_generated_time.isoformat(),  # Use timezone-aware timestamp
-            }
-            
-            logger.info(f"Creating attendance record: {attendance_data}")
-            
-            attendance_records_ref = db.collection(f"artifacts/{app_id}/public/data/attendanceRecords")
-            doc_ref = attendance_records_ref.add(attendance_data)
-            
-            logger.info(f"Attendance record created with ID: {doc_ref[1].id}")
-            
-        except Exception as e:
-            logger.error(f"Error creating attendance record: {e}")
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error creating attendance record: {str(e)}")
+        # Check in the public collection
+        attendance_records_ref = db.collection(f"artifacts/{app_id}/public/data/attendanceRecords")
+        existing_query = attendance_records_ref.where("sessionId", "==", request_data.sessionId).where("studentId", "==", student_id).limit(1)
+        existing_docs = list(existing_query.stream())
         
-        logger.info(f"Attendance marked successfully for student: {student_id}, session: {request_data.sessionId}")
+        if len(existing_docs) > 0:
+            logger.info("Duplicate attendance detected.")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Attendance already marked for this session.")
+        
+        # 4. Mark Attendance with a Firestore Batch
+        # Prepare the attendance data
+        attendance_data = {
+            "sessionId": request_data.sessionId,
+            "classId": request_data.classId,
+            "className": request_data.className,
+            "teacherId": request_data.teacherId,
+            "studentId": student_id,
+            "studentName": student_profile_data.get('fullName', 'Unknown Student'),
+            "studentRollNo": student_profile_data.get('rollNo', 'N/A'),
+            "timestamp": firestore.SERVER_TIMESTAMP,
+            "status": "present",
+            "verified_latitude": request_data.latitude,
+            "verified_longitude": request_data.longitude,
+            "faceMatchConfidence": request_data.faceMatchConfidence,
+            "ipAddress": request_data.ipAddress,
+            "qrTimestamp": qr_generated_time.isoformat(),
+        }
+
+        # Use a batch to write to multiple locations atomically
+        batch = db.batch()
+        
+        # Reference for the public record
+        public_ref = db.collection(f"artifacts/{app_id}/public/data/attendanceRecords").document()
+        batch.set(public_ref, attendance_data)
+        
+        # Reference for the student's private record
+        student_ref = db.collection(f"artifacts/{app_id}/users/{student_id}/attendanceRecords").document()
+        batch.set(student_ref, attendance_data)
+        
+        # Reference for the teacher's session-specific record
+        teacher_session_ref = db.collection(f"artifacts/{app_id}/users/{request_data.teacherId}/sessions/{request_data.sessionId}/attendance").document(student_id)
+        batch.set(teacher_session_ref, attendance_data)
+        
+        # Commit the batch write
+        batch.commit()
+        
+        logger.info(f"Attendance records created for student: {student_id}, session: {request_data.sessionId}")
         return {"message": "Attendance marked successfully!", "status": "success"}
-    
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Unexpected error in mark_attendance: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Internal server error: {str(e)}")
 
-# ... (rest of the endpoints remain the same)
 
 @app.get("/admin/users", summary="Get all user profiles (Admin only)")
 async def get_all_users(current_admin_user: dict = Depends(get_current_admin_user)):
@@ -451,4 +450,3 @@ async def preflight_handler(request: Request, full_path: str):
             "Access-Control-Allow-Headers": "*",
         }
     )
-

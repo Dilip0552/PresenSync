@@ -19,8 +19,9 @@ function StudentAttendanceReport({ addNotification, studentProfile }) {
     }
 
     setLoading(true);
-    const attendanceCollectionRef = collection(db, `artifacts/${appId}/public/data/attendanceRecords`);
-    const q = query(attendanceCollectionRef, where("studentId", "==", userId));
+    // CORRECTED: Use 'userId' instead of the undefined 'student_id'
+    const attendanceCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/attendanceRecords`);
+    const q = query(attendanceCollectionRef); // The path already filters by user, so the 'where' clause is redundant but harmless.
 
     const unsubscribe = onSnapshot(q, async (snapshot) => {
       const fetchedRecords = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -29,7 +30,6 @@ function StudentAttendanceReport({ addNotification, studentProfile }) {
       // Fetch associated session and class details for each record
       const uniqueSessionIds = [...new Set(fetchedRecords.map(record => record.sessionId))];
       const uniqueClassIds = [...new Set(fetchedRecords.map(record => record.classId))];
-      const uniqueTeacherIds = [...new Set(fetchedRecords.map(record => record.teacherId))]; // To get teacher's sessions
 
       const newSessionsMap = { ...sessionsMap };
       const newClassesMap = { ...classesMap };
@@ -54,9 +54,6 @@ function StudentAttendanceReport({ addNotification, studentProfile }) {
       setSessionsMap(newSessionsMap);
 
       // Fetch class details (from the teacher who created the class)
-      // This is a bit more complex as class is under teacher's user ID.
-      // We might need to iterate through all teachers or store classId-teacherId mapping
-      // For now, we'll try to fetch from the teacher who created the session.
       for (const classId of uniqueClassIds) {
         if (!newClassesMap[classId]) {
           const record = fetchedRecords.find(rec => rec.classId === classId);
@@ -86,12 +83,7 @@ function StudentAttendanceReport({ addNotification, studentProfile }) {
   }, [db, userId, appId, addNotification, sessionsMap, classesMap]);
 
   // Calculate overall attendance statistics
-  const totalPresent = attendanceRecords.length;
-  // To get total sessions, we would need to know all sessions the student was enrolled in,
-  // which implies fetching student's enrolled classes and then all sessions for those classes.
-  // For simplicity, we'll just show present count for now.
   const totalSessionsAttended = attendanceRecords.length;
-
 
   return (
     <div className="w-full h-full flex flex-col items-start justify-start p-4">
