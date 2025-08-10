@@ -10,7 +10,7 @@ function StudentAttendanceReport({ addNotification, studentProfile }) {
   const [classesMap, setClassesMap] = useState({}); // To store class details by classId
 
   const { db, userId } = useFirebase();
-  const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+  const appId = typeof __app_id !== 'undefined' ? __app_id : 'presensync-app';
 
   useEffect(() => {
     if (!db || !userId) {
