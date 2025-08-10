@@ -174,7 +174,7 @@ function ProfileSettingsModal({ setShowSettings, addNotification }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 font-inter">
+    <div className="fixed inset-0 bg-white bg-opacity-20 flex items-center justify-center z-50 p-4 font-inter">
 
       <div
         className="bg-white w-full max-w-7xl max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl relative p-6 sm:p-8 md:p-10 lg:p-12 outline-2 outline-blue-200"
