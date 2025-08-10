@@ -30,9 +30,7 @@ function AttendanceReportsTab({ totalSessions, classes, addNotification }) {
     if (db && userId && selectedSession?.id) {
       setLoading(true);
       try {
-        // CORRECTED: The path now points to the teacher-specific attendance collection for a given session
         const attendanceCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/sessions/${selectedSession.id}/attendance`);
-        // We no longer need the 'where' clause as the path itself is specific to the session
         const q = query(attendanceCollectionRef);
 
         unsubscribe = onSnapshot(q, (snapshot) => {
@@ -136,7 +134,6 @@ function AttendanceReportsTab({ totalSessions, classes, addNotification }) {
               </tr>
             ) : (
               filteredSessionsForClass.map((session) => {
-                // Calculate present/absent based on actual attendance records if available, otherwise use stored counts
                 const totalPresent = attendanceRecords.filter(rec => rec.sessionId === session.id && rec.status === 'present').length;
                 const totalStudentsInClass = selectedClass?.students?.length || 0;
                 const totalAbsent = totalStudentsInClass - totalPresent;
@@ -204,12 +201,13 @@ function AttendanceReportsTab({ totalSessions, classes, addNotification }) {
               </tr>
             ) : (
               selectedClass?.students.map((student, index) => {
-                const record = attendanceRecords.find(rec => rec.studentId === student.rollNo); // Assuming rollNo is studentId
+                // CORRECTED: Match attendance record by student's Firebase UID, not rollNo
+                const record = attendanceRecords.find(rec => rec.studentId === student.uid); 
                 const status = record ? 'Present' : 'Absent';
-                const timeMarked = record?.timestamp?.toDate()?.toLocaleTimeString() || '-'; // Using optional chaining and toDate()
+                const timeMarked = record?.timestamp?.toDate()?.toLocaleTimeString() || '-';
 
                 return (
-                  <tr key={student.rollNo} className="border-b hover:bg-gray-50 transition-colors">
+                  <tr key={student.uid} className="border-b hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4 font-medium">{index + 1}</td>
                     <td className="px-6 py-4">{student.name}</td>
                     <td className="px-6 py-4">{student.rollNo}</td>
