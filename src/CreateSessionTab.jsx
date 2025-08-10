@@ -3,29 +3,24 @@ import QRCodeComp from "./QRCodeComp";
 import { collection, addDoc, updateDoc, doc } from "firebase/firestore";
 import { useFirebase } from './FirebaseContext';
 import Spinner from './Spinner';
-import { MapPin, CheckCircle, Wifi } from 'lucide-react'; // Added Wifi icon
+import { MapPin, CheckCircle, Wifi } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 
 function CreateSessionTab({ classes, addNotification }) {
-  const [selectedClassId, setSelectedClassId] = useState(''); // Store class ID
+  const [selectedClassId, setSelectedClassId] = useState('');
   const [durationValue, setDurationValue] = useState('');
   const [durationUnit, setDurationUnit] = useState('min');
   const [startTime, setStartTime] = useState('');
-
   const [currentView, setCurrentView] = useState("form");
   const [sessionDetailsForQR, setSessionDetailsForQR] = useState(null);
   const [loading, setLoading] = useState(false);
-  
   const [location, setLocation] = useState(null);
   const [isFetchingLocation, setIsFetchingLocation] = useState(false);
-  
-  // NEW STATE FOR IP
   const [publicIp, setPublicIp] = useState(null);
   const [isFetchingIp, setIsFetchingIp] = useState(false);
 
   const { db, userId } = useFirebase();
-  // CORRECTED: Use the consistent VITE_FIREBASE_PROJECT_ID from env
-  const appId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
+  const appId = "presensync-app"
 
   const fetchTeacherIp = async () => {
     setIsFetchingIp(true);
@@ -88,9 +83,15 @@ function CreateSessionTab({ classes, addNotification }) {
         addNotification("Please get the classroom location first.", "error");
         return;
     }
-    // ADDED CHECK FOR IP
     if (!publicIp) {
         addNotification("Please get the classroom's public IP first.", "error");
+        return;
+    }
+    
+    // NEW: Explicitly check for valid appId and userId before making a Firestore call
+    if (!appId || !userId) {
+        console.error("Firebase configuration error: Missing App ID or User ID.");
+        addNotification("Firebase configuration error. Please ensure your project is correctly set up.", "error");
         return;
     }
 
@@ -104,6 +105,9 @@ function CreateSessionTab({ classes, addNotification }) {
       }
 
       const sessionsCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/sessions`);
+      // Log the path to help debug the collection creation
+      console.log(`CreateSessionTab: Creating session in collection: artifacts/${appId}/users/${userId}/sessions`);
+      
       const newSessionDoc = await addDoc(sessionsCollectionRef, {
         classId: selectedClass.id,
         className: selectedClass.name,
@@ -118,7 +122,7 @@ function CreateSessionTab({ classes, addNotification }) {
         totalAbsent: 0,
         classroomLat: location.latitude,
         classroomLon: location.longitude,
-        classroomIp: publicIp // ADDED: Store the teacher's public IP
+        classroomIp: publicIp
       });
 
       const qrData = {
@@ -129,7 +133,7 @@ function CreateSessionTab({ classes, addNotification }) {
         teacherId: userId,
         classroomLat: location.latitude,
         classroomLon: location.longitude,
-        classroomIp: publicIp, // ADDED: Include the public IP in the QR code data
+        classroomIp: publicIp,
       };
 
       setSessionDetailsForQR(qrData);
@@ -168,7 +172,7 @@ function CreateSessionTab({ classes, addNotification }) {
     setDurationValue('');
     setStartTime('');
     setLocation(null);
-    setPublicIp(null); // ADDED: Reset public IP
+    setPublicIp(null);
   };
 
   return (
@@ -294,7 +298,6 @@ function CreateSessionTab({ classes, addNotification }) {
                   </div>
               </div>
 
-              {/* NEW IP ADDRESS SECTION */}
               <div>
                   <label className="block text-sm font-medium text-gray-700">Classroom Wi-Fi IP</label>
                   <div className="mt-1 flex items-center space-x-3">
