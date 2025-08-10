@@ -71,7 +71,7 @@ const StudentDashboardHome = ({ addNotification, studentProfile }) => {
     const isMountedRef = useRef(true);
     const qrScannerBusyRef = useRef(false); // Add a ref to track if the scanner is busy
     const { db, userId, idToken } = useFirebase(); // Get idToken
-    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'presensync-app';
 
     // Step definitions for progress tracker
     const steps = [
