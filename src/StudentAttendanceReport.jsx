@@ -132,7 +132,7 @@ function StudentAttendanceReport({ addNotification, studentProfile }) {
     <div className="w-full h-full flex flex-col items-start justify-start p-4">
       <h2 className="text-2xl font-semibold text-blue-700 mb-6">Your Attendance Report</h2>
 
-      {loading && <Spinner message="Loading attendance data..." />}
+      {/* {loading && <Spinner message="Loading attendance data..." />} */}
 
       {/* Action Buttons */}
       <div className="mb-4 flex gap-4">
