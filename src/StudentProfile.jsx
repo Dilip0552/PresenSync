@@ -379,7 +379,7 @@ function StudentProfile({ addNotification, studentProfile }) {
           )}
         </p>
 
-        <div className="relative w-full aspect-video bg-gray-100 rounded-xl overflow-hidden shadow-inner flex items-center justify-center mb-4">
+        <div className="relative w-full aspect-square bg-gray-100 rounded-xl overflow-hidden shadow-inner flex items-center justify-center mb-4">
           <video ref={videoRef} autoPlay muted playsInline className="absolute w-full h-full object-cover rounded-xl"></video>
           <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full"></canvas>
           <div className="absolute inset-0 border-4 border-dashed border-purple-400 rounded-xl flex items-center justify-center">
