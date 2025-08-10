@@ -25,27 +25,41 @@ function AttendanceReportsTab({ totalSessions, classes, addNotification }) {
 
   // Fetch attendance records for the selected session
   useEffect(() => {
-    if (db && selectedSession?.id) {
+    let unsubscribe;
+
+    if (db && userId && selectedSession?.id) {
       setLoading(true);
-      // Assuming attendance records are stored in a public collection
-      const attendanceCollectionRef = collection(db, `artifacts/${appId}/public/data/attendanceRecords`);
-      const q = query(attendanceCollectionRef, where("sessionId", "==", selectedSession.id));
+      try {
+        // CORRECTED: The path now points to the teacher-specific attendance collection for a given session
+        const attendanceCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/sessions/${selectedSession.id}/attendance`);
+        // We no longer need the 'where' clause as the path itself is specific to the session
+        const q = query(attendanceCollectionRef);
 
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        const fetchedRecords = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setAttendanceRecords(fetchedRecords);
+        unsubscribe = onSnapshot(q, (snapshot) => {
+          const fetchedRecords = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          setAttendanceRecords(fetchedRecords);
+          setLoading(false);
+          addNotification("Attendance records updated.", "info");
+        }, (error) => {
+          console.error("Error fetching attendance records:", error);
+          addNotification("Failed to load attendance records.", "error");
+          setLoading(false);
+        });
+      } catch (error) {
+        console.error("Error setting up attendance listener:", error);
+        addNotification("Failed to set up attendance listener.", "error");
         setLoading(false);
-      }, (error) => {
-        console.error("Error fetching attendance records:", error);
-        addNotification("Failed to load attendance records.", "error");
-        setLoading(false);
-      });
-
-      return () => unsubscribe();
+      }
     } else {
       setAttendanceRecords([]);
     }
-  }, [db, selectedSession, appId, addNotification]);
+
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
+  }, [db, userId, selectedSession, appId, addNotification]);
 
   const handleSelectClass = (cls) => {
     setSelectedClass(cls);
@@ -192,7 +206,7 @@ function AttendanceReportsTab({ totalSessions, classes, addNotification }) {
               selectedClass?.students.map((student, index) => {
                 const record = attendanceRecords.find(rec => rec.studentId === student.rollNo); // Assuming rollNo is studentId
                 const status = record ? 'Present' : 'Absent';
-                const timeMarked = record ? new Date(record.timestamp).toLocaleTimeString() : '-';
+                const timeMarked = record?.timestamp?.toDate()?.toLocaleTimeString() || '-'; // Using optional chaining and toDate()
 
                 return (
                   <tr key={student.rollNo} className="border-b hover:bg-gray-50 transition-colors">
