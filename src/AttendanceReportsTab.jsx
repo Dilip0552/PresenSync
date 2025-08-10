@@ -124,7 +124,18 @@ function AttendanceReportsTab({ totalSessions, classes, addNotification }) {
 
   // Rest of your render functions remain the same...
   const renderClassList = () => (
-    <div className="flex flex-col items-center flex-grow overflow-y-auto gap-4 py-2 scrollbar-thin scrollbar-thumb-blue-300 scrollbar-track-blue-100 pr-2">
+    <>
+    <AnimatePresence mode="wait">
+    
+          <motion.div
+                key="classList-view"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.3 }}
+                className="w-full h-full flex flex-col items-start justify-start relative"
+                >
+    <div className="flex flex-col items-center flex-grow overflow-y-auto gap-4 py-2 scrollbar-thin scrollbar-thumb-blue-300 scrollbar-track-blue-100 pr-2 w-full">
       {loading && <Spinner message="Loading classes..." />}
       {uniqueClassesWithSessions.length === 0 ? (
         <p className="text-gray-500 text-center py-10">No sessions recorded yet for any class.</p>
@@ -141,9 +152,23 @@ function AttendanceReportsTab({ totalSessions, classes, addNotification }) {
         ))
       )}
     </div>
+    </motion.div>
+    </AnimatePresence>
+    </>
   );
 
   const renderClassSessions = () => (
+    <>
+    <AnimatePresence mode="wait">
+    
+          <motion.div
+                key="classSession-view"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.3 }}
+                className="w-full h-full flex flex-col items-start justify-start relative"
+                >
     <div className="w-full flex flex-col h-full relative">
       {loading && <Spinner message="Loading sessions..." />}
       <div className="flex items-center gap-4 mb-6">
@@ -208,9 +233,23 @@ function AttendanceReportsTab({ totalSessions, classes, addNotification }) {
         </table>
       </div>
     </div>
+    </motion.div>
+    </AnimatePresence>
+    </>
   );
 
   const renderSessionDetails = () => (
+    <>
+    <AnimatePresence mode="wait">
+    
+          <motion.div
+                key="sessionDetails-view"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.3 }}
+                className="w-full h-full flex flex-col items-start justify-start relative"
+                >
     <div className="w-full flex flex-col h-full relative">
       {loading && <Spinner message="Loading attendance records..." />}
       <div className="flex items-center gap-4 mb-6">
@@ -311,6 +350,9 @@ function AttendanceReportsTab({ totalSessions, classes, addNotification }) {
         </button>
       </div>
     </div>
+    </motion.div>
+    </AnimatePresence>
+    </>
   );
 
   return (
