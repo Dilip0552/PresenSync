@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { LayoutDashboard, Users, BookOpen, CalendarCheck, Bell, Settings, LogOut, Menu, X, Edit, Trash2 } from 'lucide-react';
-import { collection, query, onSnapshot, doc, updateDoc, deleteDoc } from 'firebase/firestore'; // Removed collectionGroup
+import { collection, query, onSnapshot, doc, updateDoc, deleteDoc, getDoc } from 'firebase/firestore';
 import { useFirebase } from './FirebaseContext';
-import { signOut } from 'firebase/auth'; // Only signOut is needed client-side for admin
+import { signOut } from 'firebase/auth';
 import Spinner from './Spinner';
 import user from "./assets/user.png"
+
 // Admin Overview Component
 const AdminOverview = ({ stats, recentActivities }) => {
   return (
@@ -33,7 +34,7 @@ const AdminOverview = ({ stats, recentActivities }) => {
           ) : (
             recentActivities.map(activity => (
               <li key={activity.id} className="py-3 flex items-start">
-                <span className="flex-shrink-0 w-3 h-3 bg-blue-400 rounded-full mt-1.5 mr-3"></span>
+                <span className="flex-shrink-0 w-3 h-3 bg-blue-40-rounded-full mt-1.5 mr-3"></span>
                 <div>
                   <p className="text-gray-800 font-medium">{activity.type}</p>
                   <p className="text-gray-600 text-sm">{activity.details}</p>
@@ -49,10 +50,13 @@ const AdminOverview = ({ stats, recentActivities }) => {
 };
 
 // User Management Component
-const UserManagement = ({ users, addNotification, db, userId, auth, appId }) => {
+const UserManagement = ({ users, addNotification, db, userId, auth, appId, idToken }) => {
   const [editingUser, setEditingUser] = useState(null);
   const [newRole, setNewRole] = useState('');
   const [loadingAction, setLoadingAction] = useState(false);
+
+  // Define backend API URL
+  const API_BASE_URL = 'https://presensync.onrender.com';
 
   const handleEditRole = (user) => {
     setEditingUser(user);
@@ -63,13 +67,20 @@ const UserManagement = ({ users, addNotification, db, userId, auth, appId }) => 
     if (!editingUser) return;
     setLoadingAction(true);
     try {
-      // Update role in the private user profile
-      const privateUserProfileRef = doc(db, `artifacts/${appId}/users/${editingUser.uid}/profile`, 'userProfile');
-      await updateDoc(privateUserProfileRef, { role: newRole });
+      // Call the backend API to update the user's role
+      const response = await fetch(`${API_BASE_URL}/admin/users/${editingUser.uid}/role`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ new_role: newRole }),
+      });
 
-      // Update role in the public user profile for admin access
-      const publicUserProfileRef = doc(db, `artifacts/${appId}/public/data/allUserProfiles`, editingUser.uid);
-      await updateDoc(publicUserProfileRef, { role: newRole });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to update user role via API.');
+      }
 
       addNotification(`Role for ${editingUser.fullName || editingUser.email} updated to ${newRole}.`, 'success');
       setEditingUser(null);
@@ -82,7 +93,6 @@ const UserManagement = ({ users, addNotification, db, userId, auth, appId }) => 
   };
 
   const handleDeleteUser = async (userToDelete) => {
-    // Prevent admin from deleting themselves
     if (userToDelete.uid === userId) {
       addNotification("You cannot delete your own admin account from here.", "error");
       return;
@@ -95,19 +105,21 @@ const UserManagement = ({ users, addNotification, db, userId, auth, appId }) => 
 
     setLoadingAction(true);
     try {
-      // Delete user's profile document from private location
-      const privateUserProfileRef = doc(db, `artifacts/${appId}/users/${userToDelete.uid}/profile`, 'userProfile');
-      await deleteDoc(privateUserProfileRef);
+      // Call the backend API to delete the user
+      const response = await fetch(`${API_BASE_URL}/admin/users/${userToDelete.uid}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
+      });
 
-      // Delete user's profile document from public location
-      const publicUserProfileRef = doc(db, `artifacts/${appId}/public/data/allUserProfiles`, userToDelete.uid);
-      await deleteDoc(publicUserProfileRef);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to delete user via API.');
+      }
 
-      // IMPORTANT: Deleting the Firebase Auth user requires server-side logic (e.g., Cloud Function)
-      // as client-side `deleteUser(user)` only works for the currently signed-in user.
-      // For a full solution, this would trigger a Cloud Function.
-      addNotification(`User "${userToDelete.fullName || userToDelete.email}" (profile data) deleted. Firebase Auth user might still exist.`, 'warning');
-
+      addNotification(`User "${userToDelete.fullName || userToDelete.email}" deleted successfully.`, 'success');
     } catch (error) {
       console.error("Error deleting user:", error);
       addNotification(`Failed to delete user "${userToDelete.fullName || userToDelete.email}".`, 'error');
@@ -204,8 +216,10 @@ function AdminDashboard({ addNotification }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [allUsers, setAllUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
-  const { db, auth, userId } = useFirebase();
-  const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+  const [recentActivities, setRecentActivities] = useState([]); // State for recent activities
+  const { db, auth, userId, idToken } = useFirebase();
+  const appId = typeof __app_id !== 'undefined' ? __app_id : import.meta.env.VITE_FIREBASE_PROJECT_ID;
+
 
   // Fetch all user profiles from the new public collection
   useEffect(() => {
@@ -231,6 +245,25 @@ function AdminDashboard({ addNotification }) {
     }
   }, [db, appId, addNotification]);
 
+  // Placeholder for fetching recent activities
+  useEffect(() => {
+    // This is a placeholder. You would need a 'recentActivities' or 'auditLogs'
+    // collection in your Firestore database and a corresponding listener here.
+    // Example:
+    // if (db) {
+    //   const q = query(collection(db, `artifacts/${appId}/public/data/auditLogs`), orderBy('timestamp', 'desc'), limit(10));
+    //   const unsubscribe = onSnapshot(q, (snapshot) => {
+    //     const activities = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    //     setRecentActivities(activities);
+    //   });
+    //   return () => unsubscribe();
+    // }
+    setRecentActivities([
+      { id: 1, type: 'User Registered', details: 'John Smith (ID: STU1251) enrolled in Computer Science.', date: '2025-07-30 14:30' },
+      { id: 2, type: 'Role Updated', details: 'Jane Doe was promoted to Teacher.', date: '2025-07-29 11:00' },
+    ]);
+  }, [db, appId]);
+
 
   const renderContent = () => {
     switch (activeSection) {
@@ -240,9 +273,6 @@ function AdminDashboard({ addNotification }) {
           { label: 'Teachers', value: allUsers.filter(u => u.role === 'teacher').length, icon: <BookOpen size={24} className="text-green-500" /> },
           { label: 'Students', value: allUsers.filter(u => u.role === 'student').length, icon: <Users size={24} className="text-purple-500" /> },
           { label: 'Admins', value: allUsers.filter(u => u.role === 'admin').length, icon: <LayoutDashboard size={24} className="text-red-500" /> },
-        ];
-        const recentActivities = [
-          { id: 1, type: 'User Registered', details: 'John Smith (ID: STU1251) enrolled in Computer Science.', date: '2025-07-30 14:30' },
         ];
         return <AdminOverview stats={stats} recentActivities={recentActivities} />;
       case 'user-management':
@@ -254,6 +284,7 @@ function AdminDashboard({ addNotification }) {
             userId={userId}
             auth={auth}
             appId={appId}
+            idToken={idToken}
           />
         );
       case 'course-management':
@@ -424,7 +455,7 @@ function AdminDashboard({ addNotification }) {
           <div className="flex items-center space-x-2 sm:space-x-4">
             <span className="text-xs sm:text-base text-gray-700 hidden sm:block">Admin User</span>
             <img
-              src={user} // Placeholder image for admin profile
+              src={user}
               alt="Admin Profile"
               className="w-8 h-8 sm:w-10 sm:h-10 rounded-full border-2 border-blue-400"
             />
