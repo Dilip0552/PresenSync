@@ -39,24 +39,48 @@ function haversineDistance(lat1, lon1, lat2, lon2) {
 const OptimizedQRScanner = ({ onScanSuccess, onScanError, isScanning, setIsScanning }) => {
     const [cameraError, setCameraError] = useState('');
     const [isInitializing, setIsInitializing] = useState(false);
+    const [scannerReady, setScannerReady] = useState(false);
     const qrCodeScannerRef = useRef(null);
     const scannerContainerRef = useRef(null);
-    const isScannerReadyRef = useRef(false);
     const lastScanTimeRef = useRef(0);
     const initTimeoutRef = useRef(null);
+    const mountedRef = useRef(true);
 
-    // Cleanup function
+    // Cleanup function with better error handling
     const cleanupScanner = useCallback(async () => {
+        console.log('Cleaning up QR scanner...');
         try {
             if (initTimeoutRef.current) {
                 clearTimeout(initTimeoutRef.current);
                 initTimeoutRef.current = null;
             }
+
             if (qrCodeScannerRef.current) {
-                await qrCodeScannerRef.current.clear();
+                try {
+                    // Try to clear the scanner safely
+                    await qrCodeScannerRef.current.clear();
+                } catch (clearError) {
+                    console.warn('Error during scanner clear:', clearError);
+                    // If clear() fails, try to manually clean up the DOM
+                    const qrReaderElement = document.getElementById("qr-reader-camera");
+                    if (qrReaderElement) {
+                        // Remove all child nodes safely
+                        while (qrReaderElement.firstChild) {
+                            try {
+                                qrReaderElement.removeChild(qrReaderElement.firstChild);
+                            } catch (removeError) {
+                                console.warn('Error removing child node:', removeError);
+                                break; // Exit if we can't remove children
+                            }
+                        }
+                    }
+                }
                 qrCodeScannerRef.current = null;
             }
-            isScannerReadyRef.current = false;
+
+            if (mountedRef.current) {
+                setScannerReady(false);
+            }
         } catch (error) {
             console.warn('Scanner cleanup warning:', error);
         }
@@ -64,6 +88,8 @@ const OptimizedQRScanner = ({ onScanSuccess, onScanError, isScanning, setIsScann
 
     // Enhanced scan success handler with debouncing
     const handleScanSuccess = useCallback((decodedText, decodedResult) => {
+        if (!mountedRef.current) return;
+        
         const currentTime = Date.now();
         
         // Debounce scans - prevent multiple scans within 1 second
@@ -77,7 +103,11 @@ const OptimizedQRScanner = ({ onScanSuccess, onScanError, isScanning, setIsScann
         
         // Immediately stop scanning to prevent multiple reads
         setIsScanning(false);
-        cleanupScanner();
+        
+        // Cleanup scanner after successful scan
+        setTimeout(() => {
+            cleanupScanner();
+        }, 100);
         
         onScanSuccess(decodedText);
     }, [onScanSuccess, cleanupScanner, setIsScanning]);
@@ -104,13 +134,14 @@ const OptimizedQRScanner = ({ onScanSuccess, onScanError, isScanning, setIsScann
         }
     }, [onScanError]);
 
-    // Initialize camera scanner with optimized settings
+    // Initialize camera scanner with improved error handling
     const initializeCameraScanner = useCallback(async () => {
-        if (isScannerReadyRef.current || !isScanning) {
-            console.log('Scanner already ready or not scanning');
+        if (!mountedRef.current || scannerReady || !isScanning) {
+            console.log('Scanner init skipped - not mounted, already ready, or not scanning');
             return;
         }
 
+        console.log('Starting QR scanner initialization...');
         setIsInitializing(true);
         setCameraError('');
 
@@ -118,62 +149,72 @@ const OptimizedQRScanner = ({ onScanSuccess, onScanError, isScanning, setIsScann
             // Clean up any existing scanners first
             await cleanupScanner();
 
-            // Wait a bit before initializing to ensure DOM is ready
-            await new Promise(resolve => setTimeout(resolve, 100));
+            // Wait for DOM to be ready
+            await new Promise(resolve => setTimeout(resolve, 200));
+
+            if (!mountedRef.current) return;
 
             const qrReaderElement = document.getElementById("qr-reader-camera");
             if (!qrReaderElement) {
                 throw new Error('QR reader element not found in DOM');
             }
 
-            // Clear any existing content
+            // Ensure the element is empty before initializing
             qrReaderElement.innerHTML = '';
-
-            console.log('Initializing QR scanner...');
 
             // Simplified and more reliable scanner configuration
             const config = {
-                fps: 10, // Balanced frame rate
+                fps: 10,
                 qrbox: { width: 250, height: 250 },
                 aspectRatio: 1.0,
                 disableFlip: false,
-                // Simplified constraints for better compatibility
                 videoConstraints: {
-                    facingMode: "environment" // Prefer back camera
-                },
-                experimentalFeatures: {
-                    useBarCodeDetectorIfSupported: true
+                    facingMode: "environment"
                 }
             };
 
-            const scanner = new Html5QrcodeScanner("qr-reader-camera", config, false);
-
             // Add timeout for initialization
             initTimeoutRef.current = setTimeout(() => {
-                if (!isScannerReadyRef.current) {
+                if (mountedRef.current && !scannerReady) {
                     console.error('Scanner initialization timeout');
-                    setCameraError('Camera initialization timeout. Please try again.');
+                    setCameraError('Camera initialization timeout. Please refresh and try again.');
                     onScanError('Camera initialization timeout.');
                     setIsInitializing(false);
                 }
-            }, 10000); // 10 second timeout
+            }, 15000); // 15 second timeout
 
-            scanner.render(
-                (decodedText, decodedResult) => {
-                    if (initTimeoutRef.current) {
-                        clearTimeout(initTimeoutRef.current);
-                        initTimeoutRef.current = null;
-                    }
-                    console.log('Camera scan success:', decodedText);
-                    handleScanSuccess(decodedText, decodedResult);
-                },
-                (errorMessage) => {
-                    handleScanError(errorMessage);
+            const scanner = new Html5QrcodeScanner("qr-reader-camera", config, false);
+
+            const onScanSuccessWrapper = (decodedText, decodedResult) => {
+                if (!mountedRef.current) return;
+                
+                if (initTimeoutRef.current) {
+                    clearTimeout(initTimeoutRef.current);
+                    initTimeoutRef.current = null;
                 }
-            );
+                console.log('Camera scan success:', decodedText);
+                handleScanSuccess(decodedText, decodedResult);
+            };
+
+            const onScanErrorWrapper = (errorMessage) => {
+                if (!mountedRef.current) return;
+                handleScanError(errorMessage);
+            };
+
+            scanner.render(onScanSuccessWrapper, onScanErrorWrapper);
+
+            if (!mountedRef.current) {
+                // Component unmounted during initialization
+                try {
+                    await scanner.clear();
+                } catch (e) {
+                    console.warn('Error cleaning up scanner after unmount:', e);
+                }
+                return;
+            }
 
             qrCodeScannerRef.current = scanner;
-            isScannerReadyRef.current = true;
+            setScannerReady(true);
             
             if (initTimeoutRef.current) {
                 clearTimeout(initTimeoutRef.current);
@@ -184,34 +225,66 @@ const OptimizedQRScanner = ({ onScanSuccess, onScanError, isScanning, setIsScann
 
         } catch (error) {
             console.error('Scanner initialization error:', error);
-            setCameraError(`Failed to initialize camera scanner: ${error.message}`);
-            onScanError(`Failed to initialize camera scanner: ${error.message}`);
+            if (mountedRef.current) {
+                setCameraError(`Failed to initialize camera: ${error.message}`);
+                onScanError(`Failed to initialize camera: ${error.message}`);
+            }
         } finally {
-            setIsInitializing(false);
+            if (mountedRef.current) {
+                setIsInitializing(false);
+            }
         }
-    }, [isScanning, cleanupScanner, handleScanSuccess, handleScanError, onScanError]);
+    }, [isScanning, scannerReady, cleanupScanner, handleScanSuccess, handleScanError, onScanError]);
 
     // Initialize scanner when component mounts and isScanning becomes true
     useEffect(() => {
+        mountedRef.current = true;
+
         if (isScanning) {
             console.log('Starting QR scanner initialization...');
-            initializeCameraScanner();
+            // Small delay to ensure DOM is ready
+            const timeoutId = setTimeout(() => {
+                if (mountedRef.current) {
+                    initializeCameraScanner();
+                }
+            }, 100);
+
+            return () => {
+                clearTimeout(timeoutId);
+            };
         }
 
         return () => {
-            console.log('QR scanner component cleanup...');
+            // This return is for the outer useEffect
+        };
+    }, [isScanning, initializeCameraScanner]);
+
+    // Cleanup on unmount
+    useEffect(() => {
+        return () => {
+            console.log('QR scanner component unmounting...');
+            mountedRef.current = false;
             cleanupScanner();
         };
-    }, [isScanning, initializeCameraScanner, cleanupScanner]);
+    }, [cleanupScanner]);
 
     // Restart camera scanner
     const restartScanner = useCallback(() => {
+        if (!mountedRef.current) return;
+        
         console.log('Restarting QR scanner...');
         setCameraError('');
-        cleanupScanner();
-        setTimeout(() => {
-            initializeCameraScanner();
-        }, 500); // Wait a bit before restarting
+        setScannerReady(false);
+        
+        cleanupScanner().then(() => {
+            if (mountedRef.current) {
+                setTimeout(() => {
+                    if (mountedRef.current) {
+                        initializeCameraScanner();
+                    }
+                }, 500);
+            }
+        });
     }, [cleanupScanner, initializeCameraScanner]);
 
     return (
@@ -224,7 +297,7 @@ const OptimizedQRScanner = ({ onScanSuccess, onScanError, isScanning, setIsScann
                         ref={scannerContainerRef}
                         className="w-full bg-gray-100 rounded-xl overflow-hidden shadow-inner min-h-[320px] flex items-center justify-center"
                     >
-                        {(isInitializing || (!isScannerReadyRef.current && isScanning)) && (
+                        {(isInitializing || (!scannerReady && isScanning)) && (
                             <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50 bg-opacity-90 z-10">
                                 <Spinner message="Starting camera..." isVisible={true} />
                                 <p className="text-sm text-gray-600 mt-4 px-4 text-center">
