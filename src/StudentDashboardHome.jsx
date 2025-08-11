@@ -141,7 +141,12 @@ useEffect(() => {
                 console.log("QR Data:", qrData);
                 const sessionPath = `artifacts/${appId}/users/${teacherId}/sessions/${sessionId}`;
                 console.log("Fetching session from path:", sessionPath);
-
+                
+                // --- NEW: Enrollment Check ---
+                if (!studentProfile || !studentProfile.enrolledClasses || !studentProfile.enrolledClasses.includes(classId)) {
+                    throw new Error('You are not enrolled in this class.');
+                }
+                
                 const sessionDocRef = doc(db, `artifacts/${appId}/users/${teacherId}/sessions`, sessionId);
                 const sessionSnap = await getDoc(sessionDocRef);
 
