@@ -5,19 +5,18 @@ import Spinner from "./Spinner";
 // QR code refresh interval in milliseconds (e.g., 30 seconds)
 const QR_REFRESH_INTERVAL_MS = 30 * 1000;
 
-function QRCodeComp({ sessionData, handleBack, addNotification, onEndSession }) {
+function QRCodeComp({ sessionData, handleBack, addNotification, onEndSession, onExtendSession }) {
   const [qrValue, setQrValue] = useState("");
   const [showEndingSpinner, setShowEndingSpinner] = useState(false);
   const [countdown, setCountdown] = useState(QR_REFRESH_INTERVAL_MS / 1000); // Countdown in seconds
   const intervalRef = useRef(null);
 
-  // Function to generate and update QR code data
-  const generateNewQrData = () => {
+  const generateNewQrData = useCallback(() => {
     if (sessionData && sessionData.sessionId) {
-      const newTimestamp = Date.now(); // Get current time for QR code "liveness"
+      const newTimestamp = Date.now();
       const dataToEncode = JSON.stringify({
         sessionId: sessionData.sessionId,
-        timestamp: newTimestamp, // This timestamp will now constantly update
+        timestamp: newTimestamp,
         classId: sessionData.classId,
         className: sessionData.className,
         teacherId: sessionData.teacherId,
@@ -25,37 +24,32 @@ function QRCodeComp({ sessionData, handleBack, addNotification, onEndSession }) 
         classroomLon: sessionData.classroomLon,
       });
       setQrValue(dataToEncode);
-      setCountdown(QR_REFRESH_INTERVAL_MS / 1000); // Reset countdown
-    } else {
-      addNotification("Error: Missing session ID for QR code generation.", "error");
-      setQrValue("Error: Invalid session data.");
+      setCountdown(QR_REFRESH_INTERVAL_MS / 1000);
     }
-  };
+  }, [sessionData]);
 
   useEffect(() => {
-    // Initial QR code generation
-    generateNewQrData();
-
-    // Set up interval for refreshing QR code
-    intervalRef.current = setInterval(() => {
+    if (sessionData && sessionData.sessionId) {
       generateNewQrData();
-    }, QR_REFRESH_INTERVAL_MS);
 
-    // Set up interval for countdown display
-    const countdownInterval = setInterval(() => {
-      setCountdown(prev => (prev > 0 ? prev - 1 : QR_REFRESH_INTERVAL_MS / 1000));
-    }, 1000);
+      intervalRef.current = setInterval(() => {
+        generateNewQrData();
+      }, QR_REFRESH_INTERVAL_MS);
 
-    // Cleanup function: clear intervals when component unmounts
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-      if (countdownInterval) {
-        clearInterval(countdownInterval);
-      }
-    };
-  }, [sessionData, addNotification]); // Re-run effect if sessionData changes
+      const countdownInterval = setInterval(() => {
+        setCountdown(prev => (prev > 0 ? prev - 1 : QR_REFRESH_INTERVAL_MS / 1000));
+      }, 1000);
+
+      return () => {
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+        }
+        if (countdownInterval) {
+          clearInterval(countdownInterval);
+        }
+      };
+    }
+  }, [sessionData, generateNewQrData]);
 
   const handleEndSession = async () => {
     if (!sessionData || !sessionData.sessionId) {
@@ -63,28 +57,33 @@ function QRCodeComp({ sessionData, handleBack, addNotification, onEndSession }) 
       return;
     }
     setShowEndingSpinner(true);
-    // Clear the QR refresh interval immediately when session ends
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
     }
-    await onEndSession(sessionData.sessionId); // Call the prop function to update Firestore
+    await onEndSession(sessionData.sessionId);
     setShowEndingSpinner(false);
-    handleBack(); // Go back to create session form
+    if (typeof handleBack === 'function') {
+      handleBack();
+    }
   };
 
   if (!sessionData || !sessionData.sessionId) {
     return (
       <div className="flex flex-col items-center justify-center p-6 bg-white rounded-xl shadow-md border border-gray-100 text-gray-600 text-lg">
         <p className="mb-4">No session data available to generate QR code.</p>
-        <button
-          onClick={handleBack}
-          className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors font-semibold shadow-sm"
-        >
-          Go Back
-        </button>
+        {typeof handleBack === 'function' && (
+          <button
+            onClick={handleBack}
+            className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors font-semibold shadow-sm"
+          >
+            Go Back
+          </button>
+        )}
       </div>
     );
   }
+  
+  const parsedQrValue = JSON.parse(qrValue || '{}');
 
   return (
     <div
@@ -97,8 +96,8 @@ function QRCodeComp({ sessionData, handleBack, addNotification, onEndSession }) 
           <div className="w-full text-left space-y-2 mb-8">
             <span className="block text-lg font-medium text-gray-700">Class: <span className="font-semibold text-gray-900">{sessionData.className}</span></span>
             <span className="block text-lg font-medium text-gray-700">Session ID: <span className="font-semibold text-gray-900 break-all">{sessionData.sessionId}</span></span>
-            <span className="block text-lg font-medium text-gray-700">Generated At: <span className="font-semibold text-gray-900">{new Date(JSON.parse(qrValue || '{}').timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span></span>
-            <span className="block text-sm text-gray-500 italic">on {new Date(JSON.parse(qrValue || '{}').timestamp || Date.now()).toLocaleDateString()}</span>
+            <span className="block text-lg font-medium text-gray-700">Generated At: <span className="font-semibold text-gray-900">{new Date(parsedQrValue.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span></span>
+            <span className="block text-sm text-gray-500 italic">on {new Date(parsedQrValue.timestamp || Date.now()).toLocaleDateString()}</span>
             <span className="block text-base font-semibold text-gray-700 mt-4">QR refreshes in: <span className="text-blue-600">{countdown}s</span></span>
           </div>
 
