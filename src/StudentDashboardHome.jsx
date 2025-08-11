@@ -45,6 +45,7 @@ const OptimizedQRScanner = ({ onScanSuccess, onScanError, isScanning, setIsScann
     const lastScanTimeRef = useRef(0);
     const initTimeoutRef = useRef(null);
     const mountedRef = useRef(true);
+    const isScannerReadyRef=useRef(false)
 
     // Cleanup function with better error handling
     const cleanupScanner = useCallback(async () => {
