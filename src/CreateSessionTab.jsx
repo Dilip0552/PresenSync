@@ -14,7 +14,6 @@ function CreateSessionTab({ classes, addNotification }) {
   const [currentView, setCurrentView] = useState("form");
   const [sessionDetailsForQR, setSessionDetailsForQR] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [isLoadingSession, setIsLoadingSession] = useState(false); // New state to handle loading for session resumption
   const [location, setLocation] = useState(null);
   const [isFetchingLocation, setIsFetchingLocation] = useState(false);
   const [publicIp, setPublicIp] = useState(null);
@@ -27,7 +26,7 @@ function CreateSessionTab({ classes, addNotification }) {
   // Resume active session on component mount
   useEffect(() => {
     if (db && userId) {
-      setIsLoadingSession(true); // Start loading
+      setLoading(true);
       const q = query(collection(db, `artifacts/${appId}/users/${userId}/sessions`), where("status", "==", "active"));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         if (!snapshot.empty) {
@@ -36,16 +35,18 @@ function CreateSessionTab({ classes, addNotification }) {
           setSessionDetailsForQR(sessionData);
           setCurrentView("qrCode");
           addNotification(`Resuming active session for ${sessionData.className}.`, 'info');
-        } else if (currentView === "qrCode") {
-          // If no active session is found but we're in QR code view, switch back to form
+        } else if (currentView === "qrCode" && !snapshot.empty) {
+          // Do nothing, session is still active
+        } else {
+          // No active session found or session ended
           setCurrentView("form");
           setSessionDetailsForQR(null);
         }
-        setIsLoadingSession(false); // End loading after snapshot
+        setLoading(false);
       }, (error) => {
         console.error("Error fetching active session:", error);
         addNotification("Failed to check for active sessions.", "error");
-        setIsLoadingSession(false); // End loading on error
+        setLoading(false);
       });
       return () => unsubscribe();
     }
@@ -91,7 +92,6 @@ function CreateSessionTab({ classes, addNotification }) {
     }
   };
   
-  // Fetch initial location and IP on component load
   useEffect(() => {
     fetchTeacherIp();
     fetchTeacherLocation();
@@ -196,7 +196,6 @@ function CreateSessionTab({ classes, addNotification }) {
       setLoading(false);
     }
   };
-
 
   const renderSessionForm = () => (
     <motion.div
@@ -317,7 +316,7 @@ function CreateSessionTab({ classes, addNotification }) {
   const renderQRCodeSection = () => (
     <div className="flex flex-col items-center justify-center h-full w-full py-4 transition-all duration-300">
       <p className="text-gray-600 mb-4 text-center">Share this QR code with students for attendance.</p>
-      {isLoadingSession ? (
+      {loading ? (
         <Spinner message="Loading session details..." />
       ) : (
         sessionDetailsForQR ? (
@@ -339,6 +338,7 @@ function CreateSessionTab({ classes, addNotification }) {
                   onChange={(e) => setExtendTime(parseInt(e.target.value))}
                   className="w-20 px-3 py-2 border border-gray-300 rounded-md text-center"
                   min="1"
+                  disabled={loading}
                 />
                 <span className="text-gray-600">minutes</span>
                 <button
@@ -352,7 +352,7 @@ function CreateSessionTab({ classes, addNotification }) {
             </div>
           </>
         ) : (
-          <p className="text-red-500 text-center">No session data available to generate QR code. Please create a new session.</p>
+          <p className="text-red-500 text-center">No active session found. Please create a new session.</p>
         )
       )}
     </div>
