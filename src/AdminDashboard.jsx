@@ -214,6 +214,7 @@ function AdminDashboard({ addNotification }) {
   const [activeSection, setActiveSection] = useState('overview');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [allUsers, setAllUsers] = useState([]);
+  const [adminProfile, setAdminProfile] = useState(null);
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [recentActivities, setRecentActivities] = useState([]);
   const { db, auth, userId, idToken } = useFirebase();
@@ -242,6 +243,26 @@ function AdminDashboard({ addNotification }) {
       return () => unsubscribe();
     }
   }, [db, appId, addNotification]);
+
+  // Fetch current admin's profile data
+  useEffect(() => {
+    if (db && userId) {
+        const fetchAdminProfile = async () => {
+            const profileRef = doc(db, `artifacts/${appId}/public/data/allUserProfiles`, userId);
+            try {
+                const profileSnap = await getDoc(profileRef);
+                if (profileSnap.exists()) {
+                    setAdminProfile(profileSnap.data());
+                } else {
+                    console.log("Admin profile not found.");
+                }
+            } catch (error) {
+                console.error("Error fetching admin profile:", error);
+            }
+        };
+        fetchAdminProfile();
+    }
+  }, [db, userId, appId]);
 
   // Fetch recent activities from the new auditLogs collection
   useEffect(() => {
@@ -431,7 +452,9 @@ function AdminDashboard({ addNotification }) {
             {activeSection.replace('-', ' ')}
           </h1>
           <div className="flex items-center space-x-2 sm:space-x-4">
-            <span className="text-xs sm:text-base text-gray-700 hidden sm:block">Admin User</span>
+            <span className="text-xs sm:text-base text-gray-700 hidden sm:block">
+              {adminProfile?.fullName || 'Admin User'}
+            </span>
             <img
               src={user}
               alt="Admin Profile"
