@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { collection, query, onSnapshot, where, getDocs, doc, writeBatch } from "firebase/firestore";
+import { collection, query, onSnapshot, where, getDocs, doc, writeBatch, getDoc } from "firebase/firestore";
 import { useFirebase } from './FirebaseContext';
 import Spinner from "./Spinner";
 import { Plus, Minus, BookOpen, Users } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion'; // Corrected import from 'framer-presence' to 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion';
 import back from "./assets/back.png";
 import next from "./assets/next.png";
 
@@ -13,7 +13,7 @@ function AdminClassManagement({ addNotification }) {
   const [classSessions, setClassSessions] = useState([]);
   const [attendanceRecords, setAttendanceRecords] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState('allClasses'); // allClasses, classSessions, sessionDetails
+  const [view, setView] = useState('allClasses'); // allClasses, classSessions, sessionDetails, manageStudents
   const [selectedClass, setSelectedClass] = useState(null);
   const [selectedSession, setSelectedSession] = useState(null);
   const [enrollmentLoading, setEnrollmentLoading] = useState(false);
@@ -126,11 +126,11 @@ function AdminClassManagement({ addNotification }) {
       const classId = classData.id;
       const teacherId = classData.teacherId;
   
-      // Fetch the class document to get the list of enrolled students
+      // Get the class document to update its student list
       const classRef = doc(db, `artifacts/${appId}/users/${teacherId}/classes`, classId);
       const classSnap = await getDoc(classRef);
       const currentEnrolledStudents = classSnap.exists() ? classSnap.data().enrolledStudents || [] : [];
-  
+      
       let updatedEnrolledStudents;
       if (action === 'enroll') {
         updatedEnrolledStudents = [...new Set([...currentEnrolledStudents, studentId])];
@@ -144,6 +144,23 @@ function AdminClassManagement({ addNotification }) {
         enrollmentCount: updatedEnrolledStudents.length
       });
   
+      // Also update the student's profile to include/remove the class
+      const studentPrivateProfileRef = doc(db, `artifacts/${appId}/users/${studentId}/profile`, 'userProfile');
+      const studentPublicProfileRef = doc(db, `artifacts/${appId}/public/data/allUserProfiles`, studentId);
+
+      const studentData = allStudents.find(s => s.id === studentId);
+      const currentEnrolledClasses = studentData?.enrolledClasses || [];
+      
+      let updatedEnrolledClasses;
+      if (action === 'enroll') {
+        updatedEnrolledClasses = [...new Set([...currentEnrolledClasses, classId])];
+      } else {
+        updatedEnrolledClasses = currentEnrolledClasses.filter(id => id !== classId);
+      }
+      
+      batch.update(studentPrivateProfileRef, { enrolledClasses: updatedEnrolledClasses });
+      batch.update(studentPublicProfileRef, { enrolledClasses: updatedEnrolledClasses });
+
       await batch.commit();
       
       const studentName = allStudents.find(s => s.id === studentId)?.fullName || 'Student';
@@ -157,12 +174,14 @@ function AdminClassManagement({ addNotification }) {
     }
   };
 
+  // Helper function to get students enrolled in the current class
   const getEnrolledStudents = (classId) => {
     const classData = allClasses.find(cls => cls.id === classId);
     if (!classData || !classData.enrolledStudents) return [];
     return allStudents.filter(student => classData.enrolledStudents.includes(student.id));
   };
   
+  // Helper function to get students not enrolled in the current class
   const getAvailableStudents = (classId) => {
     const classData = allClasses.find(cls => cls.id === classId);
     if (!classData) return allStudents;
@@ -305,10 +324,10 @@ function AdminClassManagement({ addNotification }) {
           </thead>
           <tbody>
             {loading && <tr><td colSpan="4"><Spinner message="Loading attendance..." /></td></tr>}
-            {!loading && allStudents.length === 0 ? (
+            {!loading && getEnrolledStudents(selectedClass.id).length === 0 ? (
               <tr><td colSpan="4" className="px-6 py-4 text-center text-gray-500">No students enrolled in this class.</td></tr>
             ) : (
-              allStudents.map((student) => {
+              getEnrolledStudents(selectedClass.id).map((student) => {
                 const record = attendanceRecords.find(rec => rec.studentId === student.uid);
                 const status = record ? 'Present' : 'Absent';
                 const timeMarked = record?.timestamp?.toDate ? record.timestamp.toDate().toLocaleTimeString() : '-';
