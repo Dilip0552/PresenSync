@@ -5,7 +5,9 @@ import { useFirebase } from './FirebaseContext';
 import { signOut } from 'firebase/auth';
 import Spinner from './Spinner';
 import user from "./assets/user.png"
-import AttendanceOversight from './AttendanceOversight'; // Import the new component
+import AttendanceOversight from './AttendanceOversight';
+import AdminSettings from './AdminSettings';
+import AdminClassManagement from './AdminClassManagement';
 
 // Admin Overview Component
 const AdminOverview = ({ stats, recentActivities }) => {
@@ -282,14 +284,8 @@ function AdminDashboard({ addNotification }) {
             idToken={idToken}
           />
         );
-      case 'course-management':
-        return (
-          <div className="p-4 sm:p-6 bg-white rounded-lg shadow-md">
-            <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-3 sm:mb-4">Course Management</h2>
-            <p className="text-sm sm:text-base text-gray-600">Administer courses, classes, and schedules.</p>
-            <p className="text-gray-500 mt-4"> (Implementation coming soon)</p>
-          </div>
-        );
+      case 'class-management':
+        return <AdminClassManagement addNotification={addNotification} />;
       case 'attendance-oversight':
         return <AttendanceOversight addNotification={addNotification} />;
       case 'notifications':
@@ -301,13 +297,7 @@ function AdminDashboard({ addNotification }) {
           </div>
         );
       case 'settings':
-        return (
-          <div className="p-4 sm:p-6 bg-white rounded-lg shadow-md">
-            <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-3 sm:mb-4">Admin Settings</h2>
-            <p className="text-sm sm:text-base text-gray-600">Configure dashboard and system settings.</p>
-            <p className="text-gray-500 mt-4"> (Implementation coming soon)</p>
-          </div>
-        );
+        return <AdminSettings />;
       default:
         return null;
     }
@@ -370,12 +360,12 @@ function AdminDashboard({ addNotification }) {
             </li>
             <li className="mb-1 sm:mb-2">
               <button
-                onClick={() => handleSidebarItemClick('course-management')}
+                onClick={() => handleSidebarItemClick('class-management')}
                 className={`flex items-center w-full p-2 sm:p-3 rounded-lg text-left text-sm sm:text-base transition-colors duration-200
-                  ${activeSection === 'course-management' ? 'bg-blue-700 font-bold' : 'hover:bg-blue-700'}`}
+                  ${activeSection === 'class-management' ? 'bg-blue-700 font-bold' : 'hover:bg-blue-700'}`}
               >
                 <BookOpen size={18} className="mr-2 sm:mr-3" />
-                Course Management
+                Class Management
               </button>
             </li>
             <li className="mb-1 sm:mb-2">
