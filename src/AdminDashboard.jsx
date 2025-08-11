@@ -443,7 +443,7 @@ const AttendanceOversight = ({ addNotification, db, appId }) => {
         // Fetch attendance counts for each session
         const details = {};
         for (const session of fetchedSessions) {
-          const attendanceRef = collection(db, `${docSnap.ref.path}/attendances`); // Assuming attendances subcollection
+          const attendanceRef = collection(db, `${session.path}/attendances`);
           const attendanceSnap = await getDocs(attendanceRef);
           details[session.id] = attendanceSnap.size;
         }
