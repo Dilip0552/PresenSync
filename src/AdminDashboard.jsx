@@ -297,7 +297,7 @@ function AdminDashboard({ addNotification }) {
           </div>
         );
       case 'settings':
-        return <AdminSettings />;
+        return <AdminSettings addNotification={addNotification} />;
       default:
         return null;
     }
