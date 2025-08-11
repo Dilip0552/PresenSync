@@ -207,14 +207,14 @@ function ManageClassesTab({ classes, addNotification }) {
 
   return (
     <>
-    <AnimatePresence>
+    <AnimatePresence mode="wait">
       <motion.div
             key="manageClasses"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
             transition={{ duration: 0.3 }}
-            className="inset-0 z-50 flex items-center justify-center bg-white bg-opacity-75"
+            className="w-full h-full flex flex-col items-start justify-start"
           >
     <div className="w-full h-full flex flex-col items-start justify-start">
       <AnimatePresence>
