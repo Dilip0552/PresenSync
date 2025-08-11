@@ -38,27 +38,23 @@ function haversineDistance(lat1, lon1, lat2, lon2) {
 // Optimized QR Scanner Component
 const OptimizedQRScanner = ({ onScanSuccess, onScanError, isScanning, setIsScanning }) => {
     const [cameraError, setCameraError] = useState('');
-    const [scannerMethod, setScannerMethod] = useState('camera'); // 'camera' or 'file'
     const [isInitializing, setIsInitializing] = useState(false);
     const qrCodeScannerRef = useRef(null);
-    const html5QrCodeRef = useRef(null);
     const scannerContainerRef = useRef(null);
     const isScannerReadyRef = useRef(false);
     const lastScanTimeRef = useRef(0);
-    const fileInputRef = useRef(null);
+    const initTimeoutRef = useRef(null);
 
     // Cleanup function
     const cleanupScanner = useCallback(async () => {
         try {
+            if (initTimeoutRef.current) {
+                clearTimeout(initTimeoutRef.current);
+                initTimeoutRef.current = null;
+            }
             if (qrCodeScannerRef.current) {
                 await qrCodeScannerRef.current.clear();
                 qrCodeScannerRef.current = null;
-            }
-            if (html5QrCodeRef.current) {
-                if (html5QrCodeRef.current.isScanning) {
-                    await html5QrCodeRef.current.stop();
-                }
-                html5QrCodeRef.current = null;
             }
             isScannerReadyRef.current = false;
         } catch (error) {
@@ -70,8 +66,8 @@ const OptimizedQRScanner = ({ onScanSuccess, onScanError, isScanning, setIsScann
     const handleScanSuccess = useCallback((decodedText, decodedResult) => {
         const currentTime = Date.now();
         
-        // Debounce scans - prevent multiple scans within 2 seconds
-        if (currentTime - lastScanTimeRef.current < 2000) {
+        // Debounce scans - prevent multiple scans within 1 second
+        if (currentTime - lastScanTimeRef.current < 1000) {
             console.log('Scan ignored due to debouncing');
             return;
         }
@@ -108,33 +104,12 @@ const OptimizedQRScanner = ({ onScanSuccess, onScanError, isScanning, setIsScann
         }
     }, [onScanError]);
 
-    // File upload handler
-    const handleFileUpload = useCallback(async (event) => {
-        const file = event.target.files?.[0];
-        if (!file) return;
-
-        try {
-            setIsInitializing(true);
-            if (!html5QrCodeRef.current) {
-                html5QrCodeRef.current = new Html5Qrcode("qr-reader-file");
-            }
-
-            const result = await html5QrCodeRef.current.scanFile(file, true);
-            handleScanSuccess(result);
-        } catch (error) {
-            console.error('File scan error:', error);
-            onScanError('Failed to scan QR code from file. Please try again.');
-        } finally {
-            setIsInitializing(false);
-            if (fileInputRef.current) {
-                fileInputRef.current.value = '';
-            }
-        }
-    }, [handleScanSuccess, onScanError]);
-
     // Initialize camera scanner with optimized settings
     const initializeCameraScanner = useCallback(async () => {
-        if (isScannerReadyRef.current || !isScanning) return;
+        if (isScannerReadyRef.current || !isScanning) {
+            console.log('Scanner already ready or not scanning');
+            return;
+        }
 
         setIsInitializing(true);
         setCameraError('');
@@ -143,36 +118,52 @@ const OptimizedQRScanner = ({ onScanSuccess, onScanError, isScanning, setIsScann
             // Clean up any existing scanners first
             await cleanupScanner();
 
+            // Wait a bit before initializing to ensure DOM is ready
+            await new Promise(resolve => setTimeout(resolve, 100));
+
             const qrReaderElement = document.getElementById("qr-reader-camera");
             if (!qrReaderElement) {
-                throw new Error('QR reader element not found');
+                throw new Error('QR reader element not found in DOM');
             }
 
-            // Optimized scanner configuration
+            // Clear any existing content
+            qrReaderElement.innerHTML = '';
+
+            console.log('Initializing QR scanner...');
+
+            // Simplified and more reliable scanner configuration
             const config = {
                 fps: 10, // Balanced frame rate
-                qrbox: { 
-                    width: Math.min(300, window.innerWidth * 0.8), 
-                    height: Math.min(300, window.innerWidth * 0.8) 
-                },
+                qrbox: { width: 250, height: 250 },
                 aspectRatio: 1.0,
                 disableFlip: false,
-                // Optimized constraints for better compatibility
+                // Simplified constraints for better compatibility
                 videoConstraints: {
-                    facingMode: { ideal: "environment" }, // Prefer back camera but allow front
-                    width: { ideal: 1280, min: 640 },
-                    height: { ideal: 720, min: 480 }
+                    facingMode: "environment" // Prefer back camera
                 },
-                formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
-                useBarCodeDetectorIfSupported: true, // Use native detection when available
-                showTorchButtonIfSupported: true, // Show torch/flash button if available
-                showZoomSliderIfSupported: true, // Show zoom slider if available
+                experimentalFeatures: {
+                    useBarCodeDetectorIfSupported: true
+                }
             };
 
             const scanner = new Html5QrcodeScanner("qr-reader-camera", config, false);
 
+            // Add timeout for initialization
+            initTimeoutRef.current = setTimeout(() => {
+                if (!isScannerReadyRef.current) {
+                    console.error('Scanner initialization timeout');
+                    setCameraError('Camera initialization timeout. Please try again.');
+                    onScanError('Camera initialization timeout.');
+                    setIsInitializing(false);
+                }
+            }, 10000); // 10 second timeout
+
             scanner.render(
                 (decodedText, decodedResult) => {
+                    if (initTimeoutRef.current) {
+                        clearTimeout(initTimeoutRef.current);
+                        initTimeoutRef.current = null;
+                    }
                     console.log('Camera scan success:', decodedText);
                     handleScanSuccess(decodedText, decodedResult);
                 },
@@ -183,11 +174,18 @@ const OptimizedQRScanner = ({ onScanSuccess, onScanError, isScanning, setIsScann
 
             qrCodeScannerRef.current = scanner;
             isScannerReadyRef.current = true;
+            
+            if (initTimeoutRef.current) {
+                clearTimeout(initTimeoutRef.current);
+                initTimeoutRef.current = null;
+            }
+
+            console.log('QR scanner initialized successfully');
 
         } catch (error) {
             console.error('Scanner initialization error:', error);
-            setCameraError('Failed to initialize camera scanner. Try file upload instead.');
-            onScanError('Failed to initialize camera scanner.');
+            setCameraError(`Failed to initialize camera scanner: ${error.message}`);
+            onScanError(`Failed to initialize camera scanner: ${error.message}`);
         } finally {
             setIsInitializing(false);
         }
@@ -195,138 +193,80 @@ const OptimizedQRScanner = ({ onScanSuccess, onScanError, isScanning, setIsScann
 
     // Initialize scanner when component mounts and isScanning becomes true
     useEffect(() => {
-        if (isScanning && scannerMethod === 'camera') {
+        if (isScanning) {
+            console.log('Starting QR scanner initialization...');
             initializeCameraScanner();
         }
 
         return () => {
+            console.log('QR scanner component cleanup...');
             cleanupScanner();
         };
-    }, [isScanning, scannerMethod, initializeCameraScanner, cleanupScanner]);
-
-    // Method switcher
-    const switchScannerMethod = useCallback(() => {
-        setScannerMethod(prev => prev === 'camera' ? 'file' : 'camera');
-        setCameraError('');
-        cleanupScanner();
-    }, [cleanupScanner]);
+    }, [isScanning, initializeCameraScanner, cleanupScanner]);
 
     // Restart camera scanner
     const restartScanner = useCallback(() => {
+        console.log('Restarting QR scanner...');
         setCameraError('');
         cleanupScanner();
         setTimeout(() => {
-            if (scannerMethod === 'camera') {
-                initializeCameraScanner();
-            }
-        }, 100);
-    }, [cleanupScanner, initializeCameraScanner, scannerMethod]);
+            initializeCameraScanner();
+        }, 500); // Wait a bit before restarting
+    }, [cleanupScanner, initializeCameraScanner]);
 
     return (
         <div className="w-full max-w-md mx-auto">
-            {/* Scanner Method Toggle */}
-            <div className="flex justify-center mb-4">
-                <div className="flex bg-gray-100 rounded-lg p-1">
-                    <button
-                        onClick={() => setScannerMethod('camera')}
-                        className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                            scannerMethod === 'camera'
-                                ? 'bg-blue-500 text-white shadow-sm'
-                                : 'text-gray-600 hover:text-gray-800'
-                        }`}
-                    >
-                        <Camera className="inline w-4 h-4 mr-1" />
-                        Camera
-                    </button>
-                    <button
-                        onClick={() => setScannerMethod('file')}
-                        className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                            scannerMethod === 'file'
-                                ? 'bg-blue-500 text-white shadow-sm'
-                                : 'text-gray-600 hover:text-gray-800'
-                        }`}
-                    >
-                        <QrCode className="inline w-4 h-4 mr-1" />
-                        Upload
-                    </button>
-                </div>
-            </div>
-
             {/* Scanner Container */}
             <div className="relative">
-                {scannerMethod === 'camera' ? (
-                    <div className="relative">
-                        <div 
-                            id="qr-reader-camera" 
-                            ref={scannerContainerRef}
-                            className="w-full bg-gray-100 rounded-xl overflow-hidden shadow-inner min-h-[300px] flex items-center justify-center"
-                        >
-                            {(isInitializing || (!isScannerReadyRef.current && isScanning)) && (
-                                <div className="absolute inset-0 flex items-center justify-center bg-gray-50 bg-opacity-90 z-10">
-                                    <Spinner message="Initializing camera..." isVisible={true} />
-                                </div>
-                            )}
-                        </div>
+                <div className="relative">
+                    <div 
+                        id="qr-reader-camera" 
+                        ref={scannerContainerRef}
+                        className="w-full bg-gray-100 rounded-xl overflow-hidden shadow-inner min-h-[320px] flex items-center justify-center"
+                    >
+                        {(isInitializing || (!isScannerReadyRef.current && isScanning)) && (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50 bg-opacity-90 z-10">
+                                <Spinner message="Starting camera..." isVisible={true} />
+                                <p className="text-sm text-gray-600 mt-4 px-4 text-center">
+                                    Please allow camera access when prompted
+                                </p>
+                            </div>
+                        )}
                         
-                        {/* Camera Error Display */}
-                        {cameraError && (
-                            <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-                                <p className="text-red-600 text-sm font-medium mb-2">{cameraError}</p>
-                                <div className="flex gap-2">
-                                    <button
-                                        onClick={restartScanner}
-                                        className="flex items-center px-3 py-1.5 bg-red-100 text-red-700 rounded-md text-sm hover:bg-red-200 transition-colors"
-                                    >
-                                        <RefreshCw className="w-4 h-4 mr-1" />
-                                        Retry Camera
-                                    </button>
-                                    <button
-                                        onClick={() => setScannerMethod('file')}
-                                        className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-md text-sm hover:bg-blue-200 transition-colors"
-                                    >
-                                        Use File Upload
-                                    </button>
-                                </div>
+                        {/* Scanning frame overlay */}
+                        {!cameraError && isScanning && (
+                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
+                                <div className="w-64 h-64 border-4 border-dashed border-blue-400 rounded-xl opacity-70 animate-pulse"></div>
                             </div>
                         )}
                     </div>
-                ) : (
-                    <div className="relative">
-                        <div 
-                            id="qr-reader-file"
-                            className="w-full bg-gray-100 rounded-xl overflow-hidden shadow-inner min-h-[300px] flex flex-col items-center justify-center p-6"
-                        >
-                            {isInitializing ? (
-                                <Spinner message="Processing image..." isVisible={true} />
-                            ) : (
-                                <>
-                                    <QrCode className="w-16 h-16 text-gray-400 mb-4" />
-                                    <h3 className="text-lg font-medium text-gray-700 mb-2">Upload QR Code Image</h3>
-                                    <p className="text-sm text-gray-500 mb-4 text-center">
-                                        Select an image file containing a QR code from your device
-                                    </p>
-                                    <input
-                                        ref={fileInputRef}
-                                        type="file"
-                                        accept="image/*"
-                                        onChange={handleFileUpload}
-                                        className="hidden"
-                                    />
-                                    <button
-                                        onClick={() => fileInputRef.current?.click()}
-                                        className="px-6 py-3 bg-blue-500 text-white rounded-lg shadow-md hover:bg-blue-600 transition-colors font-medium"
-                                    >
-                                        Choose Image File
-                                    </button>
-                                </>
-                            )}
+                    
+                    {/* Camera Error Display */}
+                    {cameraError && (
+                        <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                            <p className="text-red-600 text-sm font-medium mb-3">{cameraError}</p>
+                            <div className="flex gap-2 flex-wrap">
+                                <button
+                                    onClick={restartScanner}
+                                    className="flex items-center px-4 py-2 bg-red-100 text-red-700 rounded-lg text-sm hover:bg-red-200 transition-colors"
+                                >
+                                    <RefreshCw className="w-4 h-4 mr-1" />
+                                    Retry Camera
+                                </button>
+                                <button
+                                    onClick={() => window.location.reload()}
+                                    className="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg text-sm hover:bg-blue-200 transition-colors"
+                                >
+                                    Refresh Page
+                                </button>
+                            </div>
                         </div>
-                    </div>
-                )}
+                    )}
+                </div>
 
                 {/* Scanning Indicator */}
-                {isScanning && !cameraError && scannerMethod === 'camera' && isScannerReadyRef.current && (
-                    <div className="absolute top-4 left-4 bg-green-500 text-white px-3 py-1 rounded-full text-xs font-medium flex items-center">
+                {isScanning && !cameraError && isScannerReadyRef.current && (
+                    <div className="absolute top-4 left-4 bg-green-500 text-white px-3 py-1 rounded-full text-xs font-medium flex items-center z-30">
                         <div className="w-2 h-2 bg-white rounded-full mr-2 animate-pulse"></div>
                         Scanning...
                     </div>
@@ -334,13 +274,14 @@ const OptimizedQRScanner = ({ onScanSuccess, onScanError, isScanning, setIsScann
             </div>
 
             {/* Instructions */}
-            <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <h4 className="font-medium text-blue-800 mb-2">Scanning Tips:</h4>
+            <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <h4 className="font-medium text-blue-800 mb-2">📱 Scanning Tips:</h4>
                 <ul className="text-sm text-blue-700 space-y-1">
                     <li>• Ensure good lighting conditions</li>
                     <li>• Hold the QR code steady and centered</li>
                     <li>• Keep the camera 6-12 inches from the code</li>
-                    <li>• Try both camera and file upload methods</li>
+                    <li>• Allow camera permissions when prompted</li>
+                    <li>• Make sure no other apps are using the camera</li>
                 </ul>
             </div>
         </div>
