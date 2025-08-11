@@ -1,10 +1,17 @@
 import React, { useState } from 'react';
-import { Settings, User, Database, Shield, Save, Mail, Code } from 'lucide-react';
+import { Settings, User, Database, Shield, Save, Mail, Code, Key } from 'lucide-react';
 import { motion } from 'framer-motion';
 import Spinner from './Spinner';
+import { useFirebase } from './FirebaseContext';
+import { updatePassword } from 'firebase/auth';
 
 function AdminSettings({ addNotification }) {
+  const { auth } = useFirebase();
   const [isSaving, setIsSaving] = useState(false);
+  const [isPasswordChanging, setIsPasswordChanging] = useState(false);
+  
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
   // Mock settings state - these would be fetched from the backend in a real app
   const [settings, setSettings] = useState({
@@ -62,6 +69,42 @@ function AdminSettings({ addNotification }) {
     }
   };
 
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    if (newPassword !== confirmPassword) {
+      addNotification("New passwords do not match.", "error");
+      return;
+    }
+    if (newPassword.length < 6) {
+        addNotification("Password must be at least 6 characters long.", "error");
+        return;
+    }
+
+    setIsPasswordChanging(true);
+    try {
+        const user = auth.currentUser;
+        if (user) {
+            await updatePassword(user, newPassword);
+            addNotification("Password updated successfully!", "success");
+            setNewPassword('');
+            setConfirmPassword('');
+        } else {
+            addNotification("No authenticated user found. Please log in again.", "error");
+        }
+    } catch (error) {
+        console.error("Password change error:", error);
+        let errorMessage = "Failed to change password.";
+        if (error.code === 'auth/weak-password') {
+            errorMessage = "The new password is too weak.";
+        } else if (error.code === 'auth/requires-recent-login') {
+            errorMessage = "Please re-authenticate to change your password. Log out and log back in.";
+        }
+        addNotification(errorMessage, "error");
+    } finally {
+        setIsPasswordChanging(false);
+    }
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -75,6 +118,55 @@ function AdminSettings({ addNotification }) {
       
       <div className="flex-grow overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
         
+        {/* Admin Account Section */}
+        <div className="bg-gray-50 p-6 rounded-lg shadow-sm border border-gray-100 mb-6">
+          <div className="flex items-center space-x-4 mb-4 pb-2 border-b border-gray-200">
+            <Key size={24} className="text-blue-600 flex-shrink-0" />
+            <h3 className="font-semibold text-lg text-gray-800">Admin Account Settings</h3>
+          </div>
+          <form onSubmit={handleChangePassword} className="space-y-4">
+            <div>
+              <label htmlFor="newPassword" className="block text-gray-700 font-medium mb-2">
+                New Password
+              </label>
+              <input
+                type="password"
+                id="newPassword"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Enter new password"
+                minLength="6"
+                required
+              />
+            </div>
+            <div>
+              <label htmlFor="confirmPassword" className="block text-gray-700 font-medium mb-2">
+                Confirm New Password
+              </label>
+              <input
+                type="password"
+                id="confirmPassword"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Confirm new password"
+                required
+              />
+            </div>
+            <button
+              type="submit"
+              className={`px-4 py-2 bg-indigo-600 text-white rounded-lg shadow-md hover:bg-indigo-700 transition-colors font-semibold flex items-center gap-2 ${
+                isPasswordChanging ? 'opacity-75 cursor-not-allowed' : ''
+              }`}
+              disabled={isPasswordChanging}
+            >
+              {isPasswordChanging && <Spinner size="small" color="white" isVisible={true} />}
+              {isPasswordChanging ? 'Updating...' : 'Change Password'}
+            </button>
+          </form>
+        </div>
+
         {/* User Management Section */}
         <div className="bg-gray-50 p-6 rounded-lg shadow-sm border border-gray-100 mb-6">
           <div className="flex items-center space-x-4 mb-4 pb-2 border-b border-gray-200">
