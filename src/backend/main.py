@@ -96,6 +96,17 @@ def get_utc_now():
     """Get current datetime in UTC with timezone info"""
     return datetime.now(timezone.utc)
 
+def log_admin_action(admin_uid, action_type, details):
+    """Log an admin action to the public audit logs collection."""
+    app_id = os.getenv("FIREBASE_PROJECT_ID", "default-app-id")
+    audit_log_ref = db.collection(f"artifacts/{app_id}/public/data/auditLogs").document()
+    audit_log_ref.set({
+        "adminUid": admin_uid,
+        "actionType": action_type,
+        "details": details,
+        "timestamp": firestore.SERVER_TIMESTAMP
+    })
+
 # --- Pydantic Models ---
 class MarkAttendanceRequest(BaseModel):
     sessionId: str
@@ -179,7 +190,7 @@ async def health_check():
     try:
         test_doc = db.collection("health_check").document("test")
         test_doc.set({"timestamp": get_utc_now().isoformat()})
-        
+
         return {
             "status": "healthy",
             "timestamp": get_utc_now().isoformat(),
@@ -199,23 +210,23 @@ async def mark_attendance(
     try:
         logger.info(f"Attendance marking request from user: {request.state.uid}")
         logger.info(f"Request data: sessionId={request_data.sessionId}, teacherId={request_data.teacherId}")
-        
+
         student_id = request.state.uid
         student_profile_data = request.state.user_data
         app_id = os.getenv("FIREBASE_PROJECT_ID", "default-app-id")
-        
+
         logger.info(f"Using app_id: {app_id}")
 
         # 0. Validate QR Code Timestamp Liveness - FIXED TIMEZONE HANDLING
         QR_LIVENESS_WINDOW_SECONDS = 300  # 5 minutes
-        
+
         try:
             qr_generated_time = parse_datetime_with_timezone(request_data.timestamp)
             logger.info(f"QR generated time (UTC): {qr_generated_time}")
         except ValueError as e:
             logger.error(f"Invalid QR timestamp format: {request_data.timestamp}, error: {e}")
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid QR timestamp format: {request_data.timestamp}")
-            
+
         current_server_time = get_utc_now()
         time_diff = (current_server_time - qr_generated_time).total_seconds()
         logger.info(f"Time difference: {time_diff} seconds")
@@ -226,18 +237,18 @@ async def mark_attendance(
         # 1. Validate Session Details - FIXED TIMEZONE HANDLING
         session_path = f"artifacts/{app_id}/users/{request_data.teacherId}/sessions"
         logger.info(f"Looking for session in path: {session_path}/{request_data.sessionId}")
-        
+
         try:
             session_ref = db.collection(session_path).document(request_data.sessionId)
             session_doc = session_ref.get()
-            
+
             if not session_doc.exists:
                 logger.error(f"Session not found: {session_path}/{request_data.sessionId}")
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found.")
 
             session_data = session_doc.to_dict()
             logger.info(f"Session data found: status={session_data.get('status')}")
-            
+
         except Exception as e:
             logger.error(f"Error fetching session: {e}")
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error fetching session: {e}")
@@ -249,7 +260,7 @@ async def mark_attendance(
         try:
             session_start_str = session_data['startTime']
             logger.info(f"Session start time string: {session_start_str}")
-            
+
             session_start_time = parse_datetime_with_timezone(session_start_str)
             logger.info(f"Parsed session start time (UTC): {session_start_time}")
         except (ValueError, KeyError) as e:
@@ -260,14 +271,14 @@ async def mark_attendance(
         if session_data.get('durationUnit') == 'hrs':
             duration_minutes *= 60
         session_end_time = session_start_time + timedelta(minutes=duration_minutes)
-        
+
         logger.info(f"Session window (UTC): {session_start_time} to {session_end_time}")
         logger.info(f"Current server time (UTC): {current_server_time}")
-        
+
         # More lenient time check for testing
         if current_server_time < (session_start_time - timedelta(minutes=5)):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Session has not started yet.")
-        
+
         if current_server_time > (session_end_time + timedelta(minutes=5)):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Session has ended.")
 
@@ -280,7 +291,7 @@ async def mark_attendance(
             try:
                 distance = haversine_distance(classroom_lat, classroom_lon, request_data.latitude, request_data.longitude)
                 logger.info(f"GPS distance: {distance:.2f}m")
-                
+
                 if distance > GPS_RADIUS_METERS:
                     logger.warning(f"GPS check failed: {distance:.2f}m > {GPS_RADIUS_METERS}m")
                     # For testing, make this a warning instead of hard error
@@ -297,11 +308,11 @@ async def mark_attendance(
         attendance_records_ref = db.collection(f"artifacts/{app_id}/public/data/attendanceRecords")
         existing_query = attendance_records_ref.where("sessionId", "==", request_data.sessionId).where("studentId", "==", student_id).limit(1)
         existing_docs = list(existing_query.stream())
-        
+
         if len(existing_docs) > 0:
             logger.info("Duplicate attendance detected.")
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Attendance already marked for this session.")
-        
+
         # 4. Mark Attendance with a Firestore Batch
         # Prepare the attendance data
         attendance_data = {
@@ -323,40 +334,40 @@ async def mark_attendance(
 
         # Use a batch to write to multiple locations atomically
         batch = db.batch()
-        
+
         # Reference for the public record
         public_ref = db.collection(f"artifacts/{app_id}/public/data/attendanceRecords").document()
         batch.set(public_ref, attendance_data)
-        
+
         # Reference for the student's private record
         student_ref = db.collection(f"artifacts/{app_id}/users/{student_id}/attendanceRecords").document()
         batch.set(student_ref, attendance_data)
-        
+
         # Reference for the teacher's session-specific record - ensure document ID is studentId
         teacher_session_ref = db.collection(f"artifacts/{app_id}/users/{request_data.teacherId}/sessions/{request_data.sessionId}/attendance").document(student_id)
         batch.set(teacher_session_ref, attendance_data)
-        
+
         # Update session totals immediately after marking attendance
         session_ref = db.collection(f"artifacts/{app_id}/users/{request_data.teacherId}/sessions").document(request_data.sessionId)
-        
+
         # Get current session data to update totals
         session_doc_current = session_ref.get()
         if session_doc_current.exists:
             session_data_current = session_doc_current.to_dict()
             current_total_present = session_data_current.get('totalPresent', 0)
-            
+
             # Increment totalPresent count
             batch.update(session_ref, {
                 'totalPresent': current_total_present + 1,
                 'lastUpdated': firestore.SERVER_TIMESTAMP
             })
-        
+
         # Commit the batch write
         batch.commit()
-        
+
         logger.info(f"Attendance records created for student: {student_id}, session: {request_data.sessionId}")
         logger.info(f"Written to teacher path: artifacts/{app_id}/users/{request_data.teacherId}/sessions/{request_data.sessionId}/attendance/{student_id}")
-        
+
         return {"message": "Attendance marked successfully!", "status": "success"}
 
     except HTTPException:
@@ -364,7 +375,7 @@ async def mark_attendance(
     except Exception as e:
         logger.error(f"Unexpected error in mark_attendance: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Internal server error: {str(e)}")
-    
+
 @app.get("/admin/users", summary="Get all user profiles (Admin only)")
 async def get_all_users(current_admin_user: dict = Depends(get_current_admin_user)):
     try:
@@ -383,6 +394,7 @@ async def get_all_users(current_admin_user: dict = Depends(get_current_admin_use
 async def update_user_role(
     uid: str,
     role_update: UpdateUserRoleRequest,
+    request: Request,
     current_admin_user: dict = Depends(get_current_admin_user)
 ):
     try:
@@ -393,6 +405,14 @@ async def update_user_role(
 
         public_user_profile_ref = db.collection(f"artifacts/{app_id}/public/data/allUserProfiles").document(uid)
         public_user_profile_ref.update({"role": role_update.new_role})
+
+        # Log the admin action
+        admin_uid = request.state.uid
+        log_admin_action(
+            admin_uid,
+            "Role Updated",
+            f"Admin {admin_uid} changed user {uid}'s role to {role_update.new_role}."
+        )
 
         return {"message": f"User {uid} role updated to {role_update.new_role}"}
     except Exception as e:
@@ -421,6 +441,14 @@ async def delete_user_account(
 
         logger.info(f"User {uid} deleted successfully")
 
+        # Log the admin action
+        admin_uid = request.state.uid
+        log_admin_action(
+            admin_uid,
+            "User Deleted",
+            f"Admin {admin_uid} deleted user account for {uid}."
+        )
+
         return {"message": f"User {uid} and their profile data successfully deleted."}
     except auth.UserNotFoundError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
@@ -431,11 +459,12 @@ async def delete_user_account(
 @app.post("/admin/notifications/send_global", summary="Send global notification to all users (Admin only)")
 async def send_global_notification(
     notification_data: GlobalNotificationRequest,
-    current_admin_user: dict = Depends(get_current_user_from_token)
+    request: Request,
+    current_admin_user: dict = Depends(get_current_admin_user)
 ):
     try:
         app_id = os.getenv("FIREBASE_PROJECT_ID", "default-app-id")
-        
+
         all_users_ref = db.collection(f"artifacts/{app_id}/public/data/allUserProfiles")
         user_uids = [doc.id for doc in all_users_ref.stream()]
 
@@ -449,8 +478,17 @@ async def send_global_notification(
                 "read": False,
                 "sender": "admin"
             })
-        
+
         batch.commit()
+
+        # Log the admin action
+        admin_uid = request.state.uid
+        log_admin_action(
+            admin_uid,
+            "Global Notification",
+            f"Admin {admin_uid} sent a global notification: '{notification_data.message[:50]}...'"
+        )
+
         return {"message": f"Global notification sent to {len(user_uids)} users."}
     except Exception as e:
         logger.error(f"Error sending global notification: {e}")
