@@ -6,6 +6,200 @@ import { Plus, Minus, BookOpen, Users } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import back from "./assets/back.png";
 import next from "./assets/next.png";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+import * as XLSX from "xlsx";
+
+// Utility functions for report generation and export
+const generateAttendanceReport = (selectedClass, selectedSession, attendanceRecords) => {
+  const enrolledStudents = selectedClass?.enrolledStudents?.map(id => {
+    const studentData = attendanceRecords.find(rec => rec.studentId === id);
+    return {
+      uid: id,
+      name: studentData?.studentName || 'Unknown Student',
+      rollNo: studentData?.studentRollNo || 'N/A'
+    };
+  }) || [];
+
+  const reportData = {
+    sessionInfo: {
+      className: selectedClass?.name,
+      sessionDate: new Date(selectedSession?.startTime).toLocaleDateString(),
+      sessionTime: new Date(selectedSession?.startTime).toLocaleTimeString(),
+      sessionId: selectedSession?.id,
+      totalStudents: enrolledStudents.length,
+      totalPresent: attendanceRecords.length,
+      totalAbsent: enrolledStudents.length - attendanceRecords.length,
+      attendancePercentage: enrolledStudents.length > 0 ?
+        ((attendanceRecords.length / enrolledStudents.length) * 100).toFixed(2) : 0
+    },
+    studentDetails: enrolledStudents.map((student, index) => {
+      const record = attendanceRecords.find(rec => rec.studentId === student.uid);
+      
+      return {
+        sNo: index + 1,
+        name: student.name,
+        rollNo: student.rollNo,
+        status: record ? 'Present' : 'Absent',
+        timeMarked: record?.timestamp?.toDate ?
+          record.timestamp.toDate().toLocaleString() : '-'
+      };
+    }) || []
+  };
+  
+  return reportData;
+};
+
+const generateReportHTML = (reportData) => {
+  const { sessionInfo, studentDetails } = reportData;
+  
+  return `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Attendance Report - ${sessionInfo.className}</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 20px; color: #333; }
+            .header { text-align: center; margin-bottom: 30px; padding: 20px; background: #f8f9fa; border-radius: 8px; }
+            .header h1 { color: #2563eb; margin: 0; }
+            .header p { margin: 5px 0; color: #666; }
+            .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
+            .summary-card { padding: 15px; border-radius: 8px; text-align: center; }
+            .summary-card.present { background: #dcfce7; border: 1px solid #16a34a; }
+            .summary-card.absent { background: #fef2f2; border: 1px solid #dc2626; }
+            .summary-card.total { background: #dbeafe; border: 1px solid #2563eb; }
+            .summary-card h3 { margin: 0; font-size: 24px; }
+            .summary-card p { margin: 5px 0; color: #666; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th, td { padding: 12px; text-align: left; border: 1px solid #e5e7eb; }
+            th { background: #f3f4f6; font-weight: bold; color: #374151; }
+            tr:nth-child(even) { background: #f9fafb; }
+            .status-present { color: #16a34a; font-weight: bold; }
+            .status-absent { color: #dc2626; font-weight: bold; }
+            .footer { margin-top: 30px; text-align: center; color: #666; font-size: 12px; }
+            @media print {
+                body { margin: 0; }
+                .no-print { display: none; }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>Attendance Report</h1>
+            <p><strong>Class:</strong> ${sessionInfo.className}</p>
+            <p><strong>Date:</strong> ${sessionInfo.sessionDate} at ${sessionInfo.sessionTime}</p>
+            <p><strong>Session ID:</strong> ${sessionInfo.sessionId}</p>
+        </div>
+        
+        <div class="summary">
+            <div class="summary-card total">
+                <h3>${sessionInfo.totalStudents}</h3>
+                <p>Total Students</p>
+            </div>
+            <div class="summary-card present">
+                <h3>${sessionInfo.totalPresent}</h3>
+                <p>Present</p>
+            </div>
+            <div class="summary-card absent">
+                <h3>${sessionInfo.totalAbsent}</h3>
+                <p>Absent</p>
+            </div>
+        </div>
+        
+        <div style="text-align: center; margin-bottom: 20px;">
+            <h2>Attendance Percentage: ${sessionInfo.attendancePercentage}%</h2>
+        </div>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>S. No.</th>
+                    <th>Student Name</th>
+                    <th>Roll No.</th>
+                    <th>Status</th>
+                    <th>Time Marked</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${studentDetails.map(student => `
+                    <tr>
+                        <td>${student.sNo}</td>
+                        <td>${student.name}</td>
+                        <td>${student.rollNo}</td>
+                        <td class="status-${student.status.toLowerCase()}">${student.status}</td>
+                        <td>${student.timeMarked}</td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+        
+        <div class="footer">
+            <p>Generated on ${new Date().toLocaleString()} | PresenSync Attendance System</p>
+        </div>
+        
+        <script>
+            // Auto-print functionality
+            window.addEventListener('load', function() {
+                setTimeout(() => window.print(), 500);
+            });
+        </script>
+    </body>
+    </html>
+  `;
+};
+
+const exportToExcel = (reportData) => {
+  const { sessionInfo, studentDetails } = reportData;
+  
+  // Create CSV content
+  const headers = ['S. No.', 'Student Name', 'Roll No.', 'Status', 'Time Marked'];
+  const csvRows = [
+    // Session information
+    ['Attendance Report'],
+    ['Class:', sessionInfo.className],
+    ['Date:', sessionInfo.sessionDate],
+    ['Time:', sessionInfo.sessionTime],
+    ['Session ID:', sessionInfo.sessionId],
+    [''],
+    ['Summary:'],
+    ['Total Students:', sessionInfo.totalStudents],
+    ['Present:', sessionInfo.totalPresent],
+    ['Absent:', sessionInfo.totalAbsent],
+    ['Attendance %:', sessionInfo.attendancePercentage + '%'],
+    [''],
+    // Headers
+    headers,
+    // Student data
+    ...studentDetails.map(student => [
+      student.sNo,
+      student.name,
+      student.rollNo,
+      student.status,
+      student.timeMarked
+    ])
+  ];
+  
+  // Convert to CSV string
+  const csvContent = csvRows.map(row => 
+    row.map(cell => `"${cell}"`).join(',')
+  ).join('\n');
+  
+  // Create and download file
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  
+  if (link.download !== undefined) {
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `Attendance_${sessionInfo.className}_${sessionInfo.sessionDate.replace(/\//g, '-')}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+};
 
 function AdminClassManagement({ addNotification }) {
   const [allClasses, setAllClasses] = useState([]);
@@ -17,6 +211,8 @@ function AdminClassManagement({ addNotification }) {
   const [selectedClass, setSelectedClass] = useState(null);
   const [selectedSession, setSelectedSession] = useState(null);
   const [enrollmentLoading, setEnrollmentLoading] = useState(false);
+  const [reportGenerating, setReportGenerating] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const { db } = useFirebase();
   const appId = typeof __app_id !== 'undefined' ? __app_id : import.meta.env.VITE_FIREBASE_PROJECT_ID;
@@ -188,6 +384,110 @@ function AdminClassManagement({ addNotification }) {
     const enrolledIds = new Set(classData.enrolledStudents);
     return allStudents.filter(student => !enrolledIds.has(student.id));
   };
+  
+  const handleGenerateReport = async () => {
+    if (!selectedClass || !selectedSession) {
+      addNotification("Please select a class and session first.", "error");
+      return;
+    }
+
+    setReportGenerating(true);
+    addNotification("Generating attendance report...", "info");
+
+    try {
+      const reportData = generateAttendanceReport(selectedClass, selectedSession, attendanceRecords);
+      const doc = new jsPDF();
+      doc.text("Attendance Report", 14, 15);
+      doc.text(`Class: ${reportData.sessionInfo.className}`, 14, 25);
+      doc.text(`Session: ${reportData.sessionInfo.sessionDate} at ${reportData.sessionInfo.sessionTime}`, 14, 30);
+      doc.text(`Total Students: ${reportData.sessionInfo.totalStudents}`, 14, 35);
+      doc.text(`Present: ${reportData.sessionInfo.totalPresent}`, 14, 40);
+      doc.text(`Absent: ${reportData.sessionInfo.totalAbsent}`, 14, 45);
+      doc.text(`Attendance %: ${reportData.sessionInfo.attendancePercentage}%`, 14, 50);
+
+      autoTable(doc, {
+        head: [["S. No.", "Student Name", "Roll No.", "Status", "Time Marked"]],
+        body: reportData.studentDetails.map(student => [
+          student.sNo,
+          student.name,
+          student.rollNo,
+          student.status,
+          student.timeMarked
+        ]),
+        startY: 60
+      });
+
+      doc.save(`Attendance_Report_${selectedClass.name}_${new Date(selectedSession.startTime).toLocaleDateString().replace(/\//g, '-')}.pdf`);
+      addNotification("PDF report generated successfully!", "success");
+    } catch (error) {
+      console.error("Error generating report:", error);
+      addNotification("Failed to generate report. Please try again.", "error");
+    } finally {
+      setReportGenerating(false);
+    }
+  };
+
+  const handleExportToExcel = async () => {
+    if (!selectedClass || !selectedSession) {
+      addNotification("Please select a class and session first.", "error");
+      return;
+    }
+  
+    setExporting(true);
+    addNotification("Exporting to Excel...", "info");
+
+    try {
+      const reportData = generateAttendanceReport(selectedClass, selectedSession, attendanceRecords);
+      
+      const headers = ['S. No.', 'Student Name', 'Roll No.', 'Status', 'Time Marked'];
+      const csvRows = [
+        ['Attendance Report'],
+        ['Class:', reportData.sessionInfo.className],
+        ['Date:', reportData.sessionInfo.sessionDate],
+        ['Time:', reportData.sessionInfo.sessionTime],
+        ['Session ID:', reportData.sessionInfo.sessionId],
+        [''],
+        ['Summary:'],
+        ['Total Students:', reportData.sessionInfo.totalStudents],
+        ['Present:', reportData.sessionInfo.totalPresent],
+        ['Absent:', reportData.sessionInfo.totalAbsent],
+        ['Attendance %:', reportData.sessionInfo.attendancePercentage + '%'],
+        [''],
+        headers,
+        ...reportData.studentDetails.map(student => [
+          student.sNo,
+          student.name,
+          student.rollNo,
+          student.status,
+          student.timeMarked
+        ])
+      ];
+      
+      const csvContent = csvRows.map(row => 
+        row.map(cell => `"${cell}"`).join(',')
+      ).join('\n');
+      
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      
+      if (link.download !== undefined) {
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `Attendance_${reportData.sessionInfo.className}_${reportData.sessionInfo.sessionDate.replace(/\//g, '-')}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+      addNotification("Data exported successfully! Check your downloads folder.", "success");
+    } catch (error) {
+      console.error("Error exporting data:", error);
+      addNotification("Failed to export data. Please try again.", "error");
+    } finally {
+      setExporting(false);
+    }
+  };
+
 
   const renderAllClasses = () => (
     <>
@@ -347,6 +647,24 @@ function AdminClassManagement({ addNotification }) {
             )}
           </tbody>
         </table>
+      </div>
+      <div className="flex justify-end mt-6 space-x-4">
+        <button
+            onClick={handleGenerateReport}
+            className={`px-6 py-3 bg-indigo-600 text-white rounded-lg shadow-md hover:bg-indigo-700 transition-colors font-semibold flex items-center gap-2 ${reportGenerating ? 'opacity-75 cursor-not-allowed' : ''}`}
+            disabled={loading || reportGenerating}
+        >
+            {reportGenerating && <Spinner size="small" color="white" isVisible={true} />}
+            {reportGenerating ? 'Generating...' : 'Generate Report'}
+        </button>
+        <button
+            onClick={handleExportToExcel}
+            className={`px-6 py-3 bg-green-600 text-white rounded-lg shadow-md hover:bg-green-700 transition-colors font-semibold flex items-center gap-2 ${exporting ? 'opacity-75 cursor-not-allowed' : ''}`}
+            disabled={loading || exporting}
+        >
+            {exporting && <Spinner size="small" color="white" isVisible={true} />}
+            {exporting ? 'Exporting...' : 'Export to Excel'}
+        </button>
       </div>
     </>
   );
