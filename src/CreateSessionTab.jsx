@@ -14,10 +14,12 @@ function CreateSessionTab({ classes, addNotification }) {
   const [currentView, setCurrentView] = useState("form");
   const [sessionDetailsForQR, setSessionDetailsForQR] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [isLoadingSession, setIsLoadingSession] = useState(false); // New state to handle loading for session resumption
   const [location, setLocation] = useState(null);
   const [isFetchingLocation, setIsFetchingLocation] = useState(false);
   const [publicIp, setPublicIp] = useState(null);
   const [isFetchingIp, setIsFetchingIp] = useState(false);
+  const [extendTime, setExtendTime] = useState(30);
 
   const { db, userId } = useFirebase();
   const appId = typeof __app_id !== 'undefined' ? __app_id : 'presensync-app';
@@ -25,6 +27,7 @@ function CreateSessionTab({ classes, addNotification }) {
   // Resume active session on component mount
   useEffect(() => {
     if (db && userId) {
+      setIsLoadingSession(true); // Start loading
       const q = query(collection(db, `artifacts/${appId}/users/${userId}/sessions`), where("status", "==", "active"));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         if (!snapshot.empty) {
@@ -38,6 +41,11 @@ function CreateSessionTab({ classes, addNotification }) {
           setCurrentView("form");
           setSessionDetailsForQR(null);
         }
+        setIsLoadingSession(false); // End loading after snapshot
+      }, (error) => {
+        console.error("Error fetching active session:", error);
+        addNotification("Failed to check for active sessions.", "error");
+        setIsLoadingSession(false); // End loading on error
       });
       return () => unsubscribe();
     }
@@ -156,10 +164,39 @@ function CreateSessionTab({ classes, addNotification }) {
     }
   }, [db, userId, appId, addNotification]);
 
-  const handleBackToCreateSession = () => {
-    setCurrentView("form");
-    setSessionDetailsForQR(null);
-  }
+  const handleExtendSession = async () => {
+    if (!sessionDetailsForQR?.sessionId) {
+      addNotification("No active session to extend.", "error");
+      return;
+    }
+    if (!extendTime || extendTime <= 0) {
+      addNotification("Please enter a valid duration to extend.", "error");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const sessionRef = doc(db, `artifacts/${appId}/users/${userId}/sessions`, sessionDetailsForQR.sessionId);
+      const newDuration = sessionDetailsForQR.duration + parseInt(extendTime);
+
+      await updateDoc(sessionRef, {
+        duration: newDuration,
+        lastUpdated: new Date().toISOString(),
+      });
+      
+      setSessionDetailsForQR(prev => ({
+        ...prev,
+        duration: newDuration
+      }));
+      addNotification(`Session extended by ${extendTime} minutes.`, "success");
+    } catch (error) {
+      console.error("Error extending session:", error);
+      addNotification("Failed to extend session.", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
 
   const renderSessionForm = () => (
     <motion.div
@@ -277,22 +314,55 @@ function CreateSessionTab({ classes, addNotification }) {
     </motion.div>
   );
 
-  return (
-    <div className="w-full h-full p-4 sm:p-6 bg-white rounded-lg shadow-md flex flex-col">
-      <AnimatePresence mode="wait">
-        {currentView === "form" && renderSessionForm()}
-        {currentView === "qrCode" && sessionDetailsForQR && (
-          <div className="flex flex-col items-center justify-center h-full w-full py-4 transition-all duration-300">
-            <p className="text-gray-600 mb-4 text-center">Share this QR code with students for attendance.</p>
+  const renderQRCodeSection = () => (
+    <div className="flex flex-col items-center justify-center h-full w-full py-4 transition-all duration-300">
+      <p className="text-gray-600 mb-4 text-center">Share this QR code with students for attendance.</p>
+      {isLoadingSession ? (
+        <Spinner message="Loading session details..." />
+      ) : (
+        sessionDetailsForQR ? (
+          <>
             <div className="w-full flex items-center justify-center flex-grow">
               <QRCodeComp
                 sessionData={sessionDetailsForQR}
                 addNotification={addNotification}
                 onEndSession={handleEndSessionInFirestore}
+                onExtendSession={handleExtendSession}
               />
             </div>
-          </div>
-        )}
+            <div className="mt-6 flex flex-col items-center space-y-4">
+              <h3 className="text-lg font-bold text-gray-800">Extend Session</h3>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="number"
+                  value={extendTime}
+                  onChange={(e) => setExtendTime(parseInt(e.target.value))}
+                  className="w-20 px-3 py-2 border border-gray-300 rounded-md text-center"
+                  min="1"
+                />
+                <span className="text-gray-600">minutes</span>
+                <button
+                  onClick={handleExtendSession}
+                  className={`px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg shadow-md hover:bg-indigo-700 transition-colors ${loading ? 'opacity-75 cursor-not-allowed' : ''}`}
+                  disabled={loading}
+                >
+                  Extend
+                </button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <p className="text-red-500 text-center">No session data available to generate QR code. Please create a new session.</p>
+        )
+      )}
+    </div>
+  );
+
+  return (
+    <div className="w-full h-full p-4 sm:p-6 bg-white rounded-lg shadow-md flex flex-col">
+      <AnimatePresence mode="wait">
+        {currentView === "form" && renderSessionForm()}
+        {currentView === "qrCode" && renderQRCodeSection()}
       </AnimatePresence>
     </div>
   );
