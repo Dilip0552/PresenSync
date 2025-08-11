@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { LayoutDashboard, Users, BookOpen, CalendarCheck, Bell, Settings, LogOut, Menu, X, Edit, Trash2 } from 'lucide-react';
-import { collection, query, onSnapshot, doc, updateDoc, deleteDoc, getDoc } from 'firebase/firestore';
+import { collection, query, onSnapshot, doc, getDoc, orderBy, limit } from 'firebase/firestore';
 import { useFirebase } from './FirebaseContext';
 import { signOut } from 'firebase/auth';
 import Spinner from './Spinner';
 import user from "./assets/user.png"
+import AttendanceOversight from './AttendanceOversight'; // Import the new component
 
 // Admin Overview Component
 const AdminOverview = ({ stats, recentActivities }) => {
@@ -34,11 +35,11 @@ const AdminOverview = ({ stats, recentActivities }) => {
           ) : (
             recentActivities.map(activity => (
               <li key={activity.id} className="py-3 flex items-start">
-                <span className="flex-shrink-0 w-3 h-3 bg-blue-40-rounded-full mt-1.5 mr-3"></span>
+                <span className="flex-shrink-0 w-3 h-3 bg-blue-400 rounded-full mt-1.5 mr-3"></span>
                 <div>
-                  <p className="text-gray-800 font-medium">{activity.type}</p>
+                  <p className="text-gray-800 font-medium">{activity.actionType}</p>
                   <p className="text-gray-600 text-sm">{activity.details}</p>
-                  <p className="text-gray-400 text-xs mt-1">{activity.date}</p>
+                  <p className="text-gray-400 text-xs mt-1">{new Date(activity.timestamp?.toDate()).toLocaleString()}</p>
                 </div>
               </li>
             ))
@@ -67,7 +68,6 @@ const UserManagement = ({ users, addNotification, db, userId, auth, appId, idTok
     if (!editingUser) return;
     setLoadingAction(true);
     try {
-      // Call the backend API to update the user's role
       const response = await fetch(`${API_BASE_URL}/admin/users/${editingUser.uid}/role`, {
         method: 'PUT',
         headers: {
@@ -105,7 +105,6 @@ const UserManagement = ({ users, addNotification, db, userId, auth, appId, idTok
 
     setLoadingAction(true);
     try {
-      // Call the backend API to delete the user
       const response = await fetch(`${API_BASE_URL}/admin/users/${userToDelete.uid}`, {
         method: 'DELETE',
         headers: {
@@ -127,7 +126,6 @@ const UserManagement = ({ users, addNotification, db, userId, auth, appId, idTok
       setLoadingAction(false);
     }
   };
-
 
   return (
     <div className="p-4 sm:p-6 bg-white rounded-lg shadow-md relative">
@@ -210,16 +208,14 @@ const UserManagement = ({ users, addNotification, db, userId, auth, appId, idTok
   );
 };
 
-
 function AdminDashboard({ addNotification }) {
   const [activeSection, setActiveSection] = useState('overview');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [allUsers, setAllUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
-  const [recentActivities, setRecentActivities] = useState([]); // State for recent activities
+  const [recentActivities, setRecentActivities] = useState([]);
   const { db, auth, userId, idToken } = useFirebase();
   const appId = typeof __app_id !== 'undefined' ? __app_id : import.meta.env.VITE_FIREBASE_PROJECT_ID;
-
 
   // Fetch all user profiles from the new public collection
   useEffect(() => {
@@ -245,24 +241,23 @@ function AdminDashboard({ addNotification }) {
     }
   }, [db, appId, addNotification]);
 
-  // Placeholder for fetching recent activities
+  // Fetch recent activities from the new auditLogs collection
   useEffect(() => {
-    // This is a placeholder. You would need a 'recentActivities' or 'auditLogs'
-    // collection in your Firestore database and a corresponding listener here.
-    // Example:
-    // if (db) {
-    //   const q = query(collection(db, `artifacts/${appId}/public/data/auditLogs`), orderBy('timestamp', 'desc'), limit(10));
-    //   const unsubscribe = onSnapshot(q, (snapshot) => {
-    //     const activities = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    //     setRecentActivities(activities);
-    //   });
-    //   return () => unsubscribe();
-    // }
-    setRecentActivities([
-      { id: 1, type: 'User Registered', details: 'John Smith (ID: STU1251) enrolled in Computer Science.', date: '2025-07-30 14:30' },
-      { id: 2, type: 'Role Updated', details: 'Jane Doe was promoted to Teacher.', date: '2025-07-29 11:00' },
-    ]);
-  }, [db, appId]);
+    if (db) {
+      const auditLogsRef = collection(db, `artifacts/${appId}/public/data/auditLogs`);
+      const q = query(auditLogsRef, orderBy('timestamp', 'desc'), limit(10));
+      
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const activities = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setRecentActivities(activities);
+      }, (error) => {
+        console.error("Error fetching recent activities:", error);
+        addNotification("Failed to load recent activities.", "error");
+      });
+
+      return () => unsubscribe();
+    }
+  }, [db, appId, addNotification]);
 
 
   const renderContent = () => {
@@ -296,13 +291,7 @@ function AdminDashboard({ addNotification }) {
           </div>
         );
       case 'attendance-oversight':
-        return (
-          <div className="p-4 sm:p-6 bg-white rounded-lg shadow-md">
-            <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-3 sm:mb-4">Attendance Oversight</h2>
-            <p className="text-sm sm:text-base text-gray-600">Monitor attendance records across all classes.</p>
-            <p className="text-gray-500 mt-4"> (Implementation coming soon)</p>
-          </div>
-        );
+        return <AttendanceOversight addNotification={addNotification} />;
       case 'notifications':
         return (
           <div className="p-4 sm:p-6 bg-white rounded-lg shadow-md">
@@ -421,7 +410,6 @@ function AdminDashboard({ addNotification }) {
             </li>
           </ul>
         </nav>
-        {/* Logout Button */}
         <div className="mt-auto pt-3 sm:pt-4 border-t border-blue-700">
           <button
             onClick={handleLogout}
