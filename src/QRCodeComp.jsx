@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import Spinner from "./Spinner";
-
+import { useCallback } from 'react';
 // QR code refresh interval in milliseconds (e.g., 30 seconds)
 const QR_REFRESH_INTERVAL_MS = 30 * 1000;
 
