@@ -259,7 +259,7 @@ function StudentProfile({ addNotification, studentProfile }) {
               name="rollNo"
               value={formData.rollNo}
               onChange={handleFormChange}
-              placeholder="Your Roll No."
+              placeholder="Ex. 202410101200040"
               className="w-full px-3 py-2 rounded-lg border-2 border-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-400 transition-shadow"
               disabled={saving || !isEditing}
             />
