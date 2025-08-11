@@ -10,14 +10,14 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 
-// Utility functions for report generation and export
-const generateAttendanceReport = (selectedClass, selectedSession, attendanceRecords) => {
+// Utility function for report generation
+const generateAttendanceReport = (selectedClass, selectedSession, attendanceRecords, allStudents) => {
   const enrolledStudents = selectedClass?.enrolledStudents?.map(id => {
-    const studentData = attendanceRecords.find(rec => rec.studentId === id);
+    const studentData = allStudents.find(s => s.id === id);
     return {
       uid: id,
-      name: studentData?.studentName || 'Unknown Student',
-      rollNo: studentData?.studentRollNo || 'N/A'
+      name: studentData?.fullName || 'Unknown Student',
+      rollNo: studentData?.rollNo || 'N/A'
     };
   }) || [];
 
@@ -50,6 +50,7 @@ const generateAttendanceReport = (selectedClass, selectedSession, attendanceReco
   return reportData;
 };
 
+// Utility function for HTML report generation
 const generateReportHTML = (reportData) => {
   const { sessionInfo, studentDetails } = reportData;
   
@@ -140,7 +141,6 @@ const generateReportHTML = (reportData) => {
         </div>
         
         <script>
-            // Auto-print functionality
             window.addEventListener('load', function() {
                 setTimeout(() => window.print(), 500);
             });
@@ -150,13 +150,12 @@ const generateReportHTML = (reportData) => {
   `;
 };
 
+// Utility function for Excel export
 const exportToExcel = (reportData) => {
   const { sessionInfo, studentDetails } = reportData;
   
-  // Create CSV content
   const headers = ['S. No.', 'Student Name', 'Roll No.', 'Status', 'Time Marked'];
   const csvRows = [
-    // Session information
     ['Attendance Report'],
     ['Class:', sessionInfo.className],
     ['Date:', sessionInfo.sessionDate],
@@ -169,9 +168,7 @@ const exportToExcel = (reportData) => {
     ['Absent:', sessionInfo.totalAbsent],
     ['Attendance %:', sessionInfo.attendancePercentage + '%'],
     [''],
-    // Headers
     headers,
-    // Student data
     ...studentDetails.map(student => [
       student.sNo,
       student.name,
@@ -181,12 +178,10 @@ const exportToExcel = (reportData) => {
     ])
   ];
   
-  // Convert to CSV string
   const csvContent = csvRows.map(row => 
     row.map(cell => `"${cell}"`).join(',')
   ).join('\n');
   
-  // Create and download file
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const link = document.createElement('a');
   
@@ -322,7 +317,6 @@ function AdminClassManagement({ addNotification }) {
       const classId = classData.id;
       const teacherId = classData.teacherId;
   
-      // Get the class document to update its student list
       const classRef = doc(db, `artifacts/${appId}/users/${teacherId}/classes`, classId);
       const classSnap = await getDoc(classRef);
       const currentEnrolledStudents = classSnap.exists() ? classSnap.data().enrolledStudents || [] : [];
@@ -334,13 +328,11 @@ function AdminClassManagement({ addNotification }) {
         updatedEnrolledStudents = currentEnrolledStudents.filter(id => id !== studentId);
       }
   
-      // Update the class document with the new enrollment list and count
       batch.update(classRef, {
         enrolledStudents: updatedEnrolledStudents,
         enrollmentCount: updatedEnrolledStudents.length
       });
   
-      // Also update the student's profile to include/remove the class
       const studentPrivateProfileRef = doc(db, `artifacts/${appId}/users/${studentId}/profile`, 'userProfile');
       const studentPublicProfileRef = doc(db, `artifacts/${appId}/public/data/allUserProfiles`, studentId);
 
@@ -370,14 +362,12 @@ function AdminClassManagement({ addNotification }) {
     }
   };
 
-  // Helper function to get students enrolled in the current class
   const getEnrolledStudents = (classId) => {
     const classData = allClasses.find(cls => cls.id === classId);
     if (!classData || !classData.enrolledStudents) return [];
     return allStudents.filter(student => classData.enrolledStudents.includes(student.id));
   };
   
-  // Helper function to get students not enrolled in the current class
   const getAvailableStudents = (classId) => {
     const classData = allClasses.find(cls => cls.id === classId);
     if (!classData) return allStudents;
@@ -395,7 +385,7 @@ function AdminClassManagement({ addNotification }) {
     addNotification("Generating attendance report...", "info");
 
     try {
-      const reportData = generateAttendanceReport(selectedClass, selectedSession, attendanceRecords);
+      const reportData = generateAttendanceReport(selectedClass, selectedSession, attendanceRecords, allStudents);
       const doc = new jsPDF();
       doc.text("Attendance Report", 14, 15);
       doc.text(`Class: ${reportData.sessionInfo.className}`, 14, 25);
@@ -437,7 +427,7 @@ function AdminClassManagement({ addNotification }) {
     addNotification("Exporting to Excel...", "info");
 
     try {
-      const reportData = generateAttendanceReport(selectedClass, selectedSession, attendanceRecords);
+      const reportData = generateAttendanceReport(selectedClass, selectedSession, attendanceRecords, allStudents);
       
       const headers = ['S. No.', 'Student Name', 'Roll No.', 'Status', 'Time Marked'];
       const csvRows = [
@@ -487,7 +477,6 @@ function AdminClassManagement({ addNotification }) {
       setExporting(false);
     }
   };
-
 
   const renderAllClasses = () => (
     <>
