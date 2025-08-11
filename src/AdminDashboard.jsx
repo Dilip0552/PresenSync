@@ -1,10 +1,12 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
-import { LayoutDashboard, Users, BookOpen, CalendarCheck, Bell, Settings, LogOut, Menu, X, Edit, Trash2 } from 'lucide-react';
-import { collection, query, onSnapshot, doc, updateDoc, deleteDoc } from 'firebase/firestore'; // Removed collectionGroup
+import { LayoutDashboard, Users, BookOpen, CalendarCheck, Bell, Settings, LogOut, Menu, X, Edit, Trash2, Plus, Save } from 'lucide-react';
+import { collection, query, onSnapshot, doc, updateDoc, deleteDoc, addDoc, setDoc, collectionGroup, getDocs } from 'firebase/firestore';
 import { useFirebase } from './FirebaseContext';
-import { signOut } from 'firebase/auth'; // Only signOut is needed client-side for admin
+import { signOut } from 'firebase/auth';
 import Spinner from './Spinner';
 import user from "./assets/user.png"
+
 // Admin Overview Component
 const AdminOverview = ({ stats, recentActivities }) => {
   return (
@@ -198,6 +200,536 @@ const UserManagement = ({ users, addNotification, db, userId, auth, appId }) => 
   );
 };
 
+// Course Management Component
+const CourseManagement = ({ addNotification, db, appId, teachers }) => {
+  const [courses, setCourses] = useState([]);
+  const [loadingCourses, setLoadingCourses] = useState(true);
+  const [loadingAction, setLoadingAction] = useState(false);
+  const [editingCourse, setEditingCourse] = useState(null);
+  const [newCourse, setNewCourse] = useState({ className: '', teacherId: '', description: '' });
+  const [showAddForm, setShowAddForm] = useState(false);
+
+  useEffect(() => {
+    if (db) {
+      const coursesRef = collection(db, `artifacts/${appId}/public/data/classes`);
+      const q = query(coursesRef);
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const fetchedCourses = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+        setCourses(fetchedCourses);
+        setLoadingCourses(false);
+      }, (error) => {
+        console.error("Error fetching courses:", error);
+        addNotification("Failed to load courses.", "error");
+        setLoadingCourses(false);
+      });
+      return () => unsubscribe();
+    }
+  }, [db, appId, addNotification]);
+
+  const handleAddCourse = async () => {
+    setLoadingAction(true);
+    try {
+      const coursesRef = collection(db, `artifacts/${appId}/public/data/classes`);
+      await addDoc(coursesRef, newCourse);
+      addNotification("Course added successfully.", "success");
+      setNewCourse({ className: '', teacherId: '', description: '' });
+      setShowAddForm(false);
+    } catch (error) {
+      console.error("Error adding course:", error);
+      addNotification("Failed to add course.", "error");
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+  const handleEditCourse = (course) => {
+    setEditingCourse(course);
+    setNewCourse({ className: course.className, teacherId: course.teacherId, description: course.description });
+  };
+
+  const handleSaveCourse = async () => {
+    if (!editingCourse) return;
+    setLoadingAction(true);
+    try {
+      const courseRef = doc(db, `artifacts/${appId}/public/data/classes`, editingCourse.id);
+      await updateDoc(courseRef, newCourse);
+      addNotification("Course updated successfully.", "success");
+      setEditingCourse(null);
+    } catch (error) {
+      console.error("Error updating course:", error);
+      addNotification("Failed to update course.", "error");
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+  const handleDeleteCourse = async (courseId) => {
+    const confirmDelete = window.confirm("Are you sure you want to delete this course?");
+    if (!confirmDelete) return;
+    setLoadingAction(true);
+    try {
+      const courseRef = doc(db, `artifacts/${appId}/public/data/classes`, courseId);
+      await deleteDoc(courseRef);
+      addNotification("Course deleted successfully.", "success");
+    } catch (error) {
+      console.error("Error deleting course:", error);
+      addNotification("Failed to delete course.", "error");
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+  return (
+    <div className="p-4 sm:p-6 bg-white rounded-lg shadow-md relative">
+      {loadingAction && <Spinner message="Performing action..." />}
+      <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-3 sm:mb-4">Course Management</h2>
+      <p className="text-sm sm:text-base text-gray-600 mb-6">Administer courses, classes, and schedules.</p>
+
+      <button
+        onClick={() => setShowAddForm(!showAddForm)}
+        className="mb-4 flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+      >
+        <Plus size={18} className="mr-2" /> Add New Course
+      </button>
+
+      {showAddForm && (
+        <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+          <input
+            type="text"
+            placeholder="Class Name"
+            value={newCourse.className}
+            onChange={(e) => setNewCourse({ ...newCourse, className: e.target.value })}
+            className="mb-2 p-2 border rounded w-full"
+          />
+          <select
+            value={newCourse.teacherId}
+            onChange={(e) => setNewCourse({ ...newCourse, teacherId: e.target.value })}
+            className="mb-2 p-2 border rounded w-full"
+          >
+            <option value="">Select Teacher</option>
+            {teachers.map(teacher => (
+              <option key={teacher.uid} value={teacher.uid}>{teacher.fullName}</option>
+            ))}
+          </select>
+          <textarea
+            placeholder="Description"
+            value={newCourse.description}
+            onChange={(e) => setNewCourse({ ...newCourse, description: e.target.value })}
+            className="mb-2 p-2 border rounded w-full"
+          />
+          <button
+            onClick={handleAddCourse}
+            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+            disabled={loadingAction}
+          >
+            Save New Course
+          </button>
+        </div>
+      )}
+
+      {loadingCourses ? (
+        <Spinner message="Loading courses..." />
+      ) : (
+        <div className="overflow-x-auto rounded-lg shadow-inner bg-gray-50 border border-gray-100">
+          <table className="min-w-full text-sm text-left text-gray-600">
+            <thead className="text-xs bg-blue-100 text-blue-800 uppercase tracking-wider">
+              <tr>
+                <th className="px-6 py-3">Class Name</th>
+                <th className="px-6 py-3">Teacher</th>
+                <th className="px-6 py-3">Description</th>
+                <th className="px-6 py-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {courses.length === 0 ? (
+                <tr>
+                  <td colSpan="4" className="px-6 py-4 text-center text-gray-500">No courses found.</td>
+                </tr>
+              ) : (
+                courses.map(course => (
+                  <tr key={course.id} className="border-b hover:bg-gray-50 transition-colors">
+                    <td className="px-6 py-4">
+                      {editingCourse?.id === course.id ? (
+                        <input
+                          type="text"
+                          value={newCourse.className}
+                          onChange={(e) => setNewCourse({ ...newCourse, className: e.target.value })}
+                          className="p-1 border rounded"
+                        />
+                      ) : (
+                        course.className
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      {editingCourse?.id === course.id ? (
+                        <select
+                          value={newCourse.teacherId}
+                          onChange={(e) => setNewCourse({ ...newCourse, teacherId: e.target.value })}
+                          className="p-1 border rounded"
+                        >
+                          <option value="">Select Teacher</option>
+                          {teachers.map(teacher => (
+                            <option key={teacher.uid} value={teacher.uid}>{teacher.fullName}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        teachers.find(t => t.uid === course.teacherId)?.fullName || 'N/A'
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      {editingCourse?.id === course.id ? (
+                        <textarea
+                          value={newCourse.description}
+                          onChange={(e) => setNewCourse({ ...newCourse, description: e.target.value })}
+                          className="p-1 border rounded"
+                        />
+                      ) : (
+                        course.description
+                      )}
+                    </td>
+                    <td className="px-6 py-4 flex space-x-2">
+                      {editingCourse?.id === course.id ? (
+                        <button
+                          onClick={handleSaveCourse}
+                          className="p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200"
+                          title="Save"
+                          disabled={loadingAction}
+                        >
+                          <Save size={18} />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleEditCourse(course)}
+                          className="p-1 rounded-full text-blue-600 hover:bg-blue-100"
+                          title="Edit"
+                          disabled={loadingAction}
+                        >
+                          <Edit size={18} />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleDeleteCourse(course.id)}
+                        className="p-1 rounded-full text-red-600 hover:bg-red-100"
+                        title="Delete"
+                        disabled={loadingAction}
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Attendance Oversight Component
+const AttendanceOversight = ({ addNotification, db, appId }) => {
+  const [sessions, setSessions] = useState([]);
+  const [loadingSessions, setLoadingSessions] = useState(true);
+  const [attendanceDetails, setAttendanceDetails] = useState({});
+
+  useEffect(() => {
+    if (db) {
+      const sessionsQuery = query(collectionGroup(db, 'sessions'));
+      const unsubscribe = onSnapshot(sessionsQuery, async (snapshot) => {
+        const fetchedSessions = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data(), path: docSnap.ref.path }));
+        setSessions(fetchedSessions);
+
+        // Fetch attendance counts for each session
+        const details = {};
+        for (const session of fetchedSessions) {
+          const attendanceRef = collection(db, `${docSnap.ref.path}/attendances`); // Assuming attendances subcollection
+          const attendanceSnap = await getDocs(attendanceRef);
+          details[session.id] = attendanceSnap.size;
+        }
+        setAttendanceDetails(details);
+        setLoadingSessions(false);
+      }, (error) => {
+        console.error("Error fetching sessions:", error);
+        addNotification("Failed to load sessions.", "error");
+        setLoadingSessions(false);
+      });
+      return () => unsubscribe();
+    }
+  }, [db, addNotification]);
+
+  return (
+    <div className="p-4 sm:p-6 bg-white rounded-lg shadow-md">
+      <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-3 sm:mb-4">Attendance Oversight</h2>
+      <p className="text-sm sm:text-base text-gray-600 mb-6">Monitor attendance records across all classes.</p>
+
+      {loadingSessions ? (
+        <Spinner message="Loading sessions..." />
+      ) : (
+        <div className="overflow-x-auto rounded-lg shadow-inner bg-gray-50 border border-gray-100">
+          <table className="min-w-full text-sm text-left text-gray-600">
+            <thead className="text-xs bg-blue-100 text-blue-800 uppercase tracking-wider">
+              <tr>
+                <th className="px-6 py-3">Session ID</th>
+                <th className="px-6 py-3">Class Name</th>
+                <th className="px-6 py-3">Start Time</th>
+                <th className="px-6 py-3">Attendance Count</th>
+                <th className="px-6 py-3">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sessions.length === 0 ? (
+                <tr>
+                  <td colSpan="5" className="px-6 py-4 text-center text-gray-500">No sessions found.</td>
+                </tr>
+              ) : (
+                sessions.map(session => (
+                  <tr key={session.id} className="border-b hover:bg-gray-50 transition-colors">
+                    <td className="px-6 py-4">{session.id}</td>
+                    <td className="px-6 py-4">{session.className || 'N/A'}</td>
+                    <td className="px-6 py-4">{new Date(session.startTime).toLocaleString()}</td>
+                    <td className="px-6 py-4">{attendanceDetails[session.id] || 0}</td>
+                    <td className="px-6 py-4 capitalize">{session.status}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Announcements Component
+const Announcements = ({ addNotification, db, appId }) => {
+  const [announcements, setAnnouncements] = useState([]);
+  const [loadingAnnouncements, setLoadingAnnouncements] = useState(true);
+  const [loadingAction, setLoadingAction] = useState(false);
+  const [newAnnouncement, setNewAnnouncement] = useState({ title: '', message: '' });
+  const [showAddForm, setShowAddForm] = useState(false);
+
+  useEffect(() => {
+    if (db) {
+      const announcementsRef = collection(db, `artifacts/${appId}/public/announcements`);
+      const q = query(announcementsRef);
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const fetchedAnnouncements = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+        setAnnouncements(fetchedAnnouncements);
+        setLoadingAnnouncements(false);
+      }, (error) => {
+        console.error("Error fetching announcements:", error);
+        addNotification("Failed to load announcements.", "error");
+        setLoadingAnnouncements(false);
+      });
+      return () => unsubscribe();
+    }
+  }, [db, appId, addNotification]);
+
+  const handleAddAnnouncement = async () => {
+    setLoadingAction(true);
+    try {
+      const announcementsRef = collection(db, `artifacts/${appId}/public/announcements`);
+      await addDoc(announcementsRef, {
+        ...newAnnouncement,
+        date: new Date().toISOString(),
+      });
+      addNotification("Announcement sent successfully.", "success");
+      setNewAnnouncement({ title: '', message: '' });
+      setShowAddForm(false);
+    } catch (error) {
+      console.error("Error adding announcement:", error);
+      addNotification("Failed to send announcement.", "error");
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+  const handleDeleteAnnouncement = async (announcementId) => {
+    const confirmDelete = window.confirm("Are you sure you want to delete this announcement?");
+    if (!confirmDelete) return;
+    setLoadingAction(true);
+    try {
+      const announcementRef = doc(db, `artifacts/${appId}/public/announcements`, announcementId);
+      await deleteDoc(announcementRef);
+      addNotification("Announcement deleted successfully.", "success");
+    } catch (error) {
+      console.error("Error deleting announcement:", error);
+      addNotification("Failed to delete announcement.", "error");
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+  return (
+    <div className="p-4 sm:p-6 bg-white rounded-lg shadow-md relative">
+      {loadingAction && <Spinner message="Performing action..." />}
+      <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-3 sm:mb-4">Announcements & Notifications</h2>
+      <p className="text-sm sm:text-base text-gray-600 mb-6">Send system-wide announcements to students.</p>
+
+      <button
+        onClick={() => setShowAddForm(!showAddForm)}
+        className="mb-4 flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+      >
+        <Plus size={18} className="mr-2" /> Create New Announcement
+      </button>
+
+      {showAddForm && (
+        <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+          <input
+            type="text"
+            placeholder="Title"
+            value={newAnnouncement.title}
+            onChange={(e) => setNewAnnouncement({ ...newAnnouncement, title: e.target.value })}
+            className="mb-2 p-2 border rounded w-full"
+          />
+          <textarea
+            placeholder="Message"
+            value={newAnnouncement.message}
+            onChange={(e) => setNewAnnouncement({ ...newAnnouncement, message: e.target.value })}
+            className="mb-2 p-2 border rounded w-full h-24"
+          />
+          <button
+            onClick={handleAddAnnouncement}
+            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+            disabled={loadingAction}
+          >
+            Send Announcement
+          </button>
+        </div>
+      )}
+
+      {loadingAnnouncements ? (
+        <Spinner message="Loading announcements..." />
+      ) : (
+        <div className="overflow-x-auto rounded-lg shadow-inner bg-gray-50 border border-gray-100">
+          <table className="min-w-full text-sm text-left text-gray-600">
+            <thead className="text-xs bg-blue-100 text-blue-800 uppercase tracking-wider">
+              <tr>
+                <th className="px-6 py-3">Title</th>
+                <th className="px-6 py-3">Message</th>
+                <th className="px-6 py-3">Date</th>
+                <th className="px-6 py-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {announcements.length === 0 ? (
+                <tr>
+                  <td colSpan="4" className="px-6 py-4 text-center text-gray-500">No announcements found.</td>
+                </tr>
+              ) : (
+                announcements.map(announcement => (
+                  <tr key={announcement.id} className="border-b hover:bg-gray-50 transition-colors">
+                    <td className="px-6 py-4">{announcement.title}</td>
+                    <td className="px-6 py-4">{announcement.message}</td>
+                    <td className="px-6 py-4">{new Date(announcement.date).toLocaleDateString()}</td>
+                    <td className="px-6 py-4">
+                      <button
+                        onClick={() => handleDeleteAnnouncement(announcement.id)}
+                        className="p-1 rounded-full text-red-600 hover:bg-red-100"
+                        title="Delete"
+                        disabled={loadingAction}
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Settings Component
+const AdminSettings = ({ addNotification, db, appId }) => {
+  const [settings, setSettings] = useState({ gpsRadius: 100, qrExpiration: 5, faceThreshold: 0.6 });
+  const [loadingSettings, setLoadingSettings] = useState(true);
+  const [loadingAction, setLoadingAction] = useState(false);
+
+  useEffect(() => {
+    if (db) {
+      const settingsRef = doc(db, `artifacts/${appId}/public/settings`, 'appSettings');
+      getDoc(settingsRef).then((docSnap) => {
+        if (docSnap.exists()) {
+          setSettings(docSnap.data());
+        }
+        setLoadingSettings(false);
+      }).catch((error) => {
+        console.error("Error fetching settings:", error);
+        addNotification("Failed to load settings.", "error");
+        setLoadingSettings(false);
+      });
+    }
+  }, [db, appId, addNotification]);
+
+  const handleSaveSettings = async () => {
+    setLoadingAction(true);
+    try {
+      const settingsRef = doc(db, `artifacts/${appId}/public/settings`, 'appSettings');
+      await setDoc(settingsRef, settings, { merge: true });
+      addNotification("Settings updated successfully.", "success");
+    } catch (error) {
+      console.error("Error updating settings:", error);
+      addNotification("Failed to update settings.", "error");
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+  return (
+    <div className="p-4 sm:p-6 bg-white rounded-lg shadow-md relative">
+      {loadingAction && <Spinner message="Saving settings..." />}
+      <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-3 sm:mb-4">Admin Settings</h2>
+      <p className="text-sm sm:text-base text-gray-600 mb-6">Configure dashboard and system settings.</p>
+
+      {loadingSettings ? (
+        <Spinner message="Loading settings..." />
+      ) : (
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700">GPS Radius (meters)</label>
+            <input
+              type="number"
+              value={settings.gpsRadius}
+              onChange={(e) => setSettings({ ...settings, gpsRadius: parseInt(e.target.value) })}
+              className="mt-1 p-2 border rounded w-full"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">QR Expiration (minutes)</label>
+            <input
+              type="number"
+              value={settings.qrExpiration}
+              onChange={(e) => setSettings({ ...settings, qrExpiration: parseInt(e.target.value) })}
+              className="mt-1 p-2 border rounded w-full"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Face Match Threshold</label>
+            <input
+              type="number"
+              step="0.01"
+              value={settings.faceThreshold}
+              onChange={(e) => setSettings({ ...settings, faceThreshold: parseFloat(e.target.value) })}
+              className="mt-1 p-2 border rounded w-full"
+            />
+          </div>
+          <button
+            onClick={handleSaveSettings}
+            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+            disabled={loadingAction}
+          >
+            Save Settings
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
 
 function AdminDashboard({ addNotification }) {
   const [activeSection, setActiveSection] = useState('overview');
@@ -231,6 +763,7 @@ function AdminDashboard({ addNotification }) {
     }
   }, [db, appId, addNotification]);
 
+  const teachers = allUsers.filter(u => u.role === 'teacher');
 
   const renderContent = () => {
     switch (activeSection) {
@@ -258,35 +791,36 @@ function AdminDashboard({ addNotification }) {
         );
       case 'course-management':
         return (
-          <div className="p-4 sm:p-6 bg-white rounded-lg shadow-md">
-            <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-3 sm:mb-4">Course Management</h2>
-            <p className="text-sm sm:text-base text-gray-600">Administer courses, classes, and schedules.</p>
-            <p className="text-gray-500 mt-4"> (Implementation coming soon)</p>
-          </div>
+          <CourseManagement
+            addNotification={addNotification}
+            db={db}
+            appId={appId}
+            teachers={teachers}
+          />
         );
       case 'attendance-oversight':
         return (
-          <div className="p-4 sm:p-6 bg-white rounded-lg shadow-md">
-            <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-3 sm:mb-4">Attendance Oversight</h2>
-            <p className="text-sm sm:text-base text-gray-600">Monitor attendance records across all classes.</p>
-            <p className="text-gray-500 mt-4"> (Implementation coming soon)</p>
-          </div>
+          <AttendanceOversight
+            addNotification={addNotification}
+            db={db}
+            appId={appId}
+          />
         );
       case 'notifications':
         return (
-          <div className="p-4 sm:p-6 bg-white rounded-lg shadow-md">
-            <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-3 sm:mb-4">Announcements & Notifications</h2>
-            <p className="text-sm sm:text-base text-gray-600">Send system-wide announcements to students.</p>
-            <p className="text-gray-500 mt-4"> (Implementation coming soon)</p>
-          </div>
+          <Announcements
+            addNotification={addNotification}
+            db={db}
+            appId={appId}
+          />
         );
       case 'settings':
         return (
-          <div className="p-4 sm:p-6 bg-white rounded-lg shadow-md">
-            <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-3 sm:mb-4">Admin Settings</h2>
-            <p className="text-sm sm:text-base text-gray-600">Configure dashboard and system settings.</p>
-            <p className="text-gray-500 mt-4"> (Implementation coming soon)</p>
-          </div>
+          <AdminSettings
+            addNotification={addNotification}
+            db={db}
+            appId={appId}
+          />
         );
       default:
         return null;
