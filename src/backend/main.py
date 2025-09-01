@@ -4,7 +4,6 @@ from datetime import datetime, timedelta, timezone
 import math
 import numpy as np
 from dotenv import load_dotenv
-
 from fastapi import FastAPI, HTTPException, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer

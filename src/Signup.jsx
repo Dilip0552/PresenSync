@@ -125,7 +125,6 @@ export default function Signup({ addNotification }) {
               >
                 <option value="student">Student</option>
                 <option value="teacher">Teacher</option>
-                <option value="admin">Admin</option>
               </select>
             </div>
             <button
